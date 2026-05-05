@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ACCESS DENIED - SYSTEM LOCKED</title>
+    <style>
+        body {
+            background-color: #000;
+            color: #ff0000;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 4rem;
+            text-transform: uppercase;
+            border: 4px solid #ff0000;
+            padding: 20px;
+            animation: blink 1s infinite;
+            margin-bottom: 20px;
+            text-shadow: 0 0 10px #ff0000;
+        }
+
+        p {
+            font-size: 1.5rem;
+            margin: 10px 0;
+            text-shadow: 0 0 5px #ff0000;
+        }
+
+        .warning-icon {
+            font-size: 6rem;
+            margin-bottom: 20px;
+            animation: pulse 1s infinite;
+        }
+
+        .terminal-container {
+            width: 90%;
+            max-width: 800px;
+            background: #0a0a0a;
+            border: 2px solid #333;
+            border-radius: 5px;
+            margin-top: 30px;
+            box-shadow: 0 0 20px rgba(255, 0, 0, 0.2);
+            text-align: left;
+            position: relative;
+        }
+
+        .terminal-header {
+            background: #222;
+            color: #ccc;
+            padding: 5px 10px;
+            font-size: 0.8rem;
+            border-bottom: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .terminal-text {
+            color: #0f0;
+            font-size: 0.9rem;
+            padding: 15px;
+            height: 300px;
+            max-height: 50vh;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            line-height: 1.4;
+        }
+
+        .cursor {
+            display: inline-block;
+            width: 8px;
+            height: 15px;
+            background: #0f0;
+            animation: blink-cursor 0.8s infinite;
+        }
+
+        .action-btn {
+            margin-top: 30px;
+            padding: 15px 40px;
+            background: #ff0000;
+            color: #000;
+            font-weight: bold;
+            font-size: 1.2rem;
+            border: none;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            box-shadow: 0 0 15px #ff0000;
+            transition: all 0.3s;
+            animation: shake 5s infinite;
+        }
+
+        .action-btn:hover {
+            background: #fff;
+            color: #ff0000;
+            box-shadow: 0 0 25px #ff0000;
+        }
+
+        @keyframes blink {
+
+            0%,
+            100% {
+                opacity: 1;
+                border-color: #ff0000;
+                color: #ff0000;
+            }
+
+            50% {
+                opacity: 0.5;
+                border-color: #550000;
+                color: #550000;
+            }
+        }
+
+        @keyframes blink-cursor {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0;
+            }
+        }
+
+        @keyframes pulse {
+            0% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.1);
+            }
+
+            100% {
+                transform: scale(1);
+            }
+        }
+
+        @keyframes shake {
+
+            0%,
+            100% {
+                transform: translateX(0);
+            }
+
+            10%,
+            30%,
+            50%,
+            70%,
+            90% {
+                transform: translateX(-2px);
+            }
+
+            20%,
+            40%,
+            60%,
+            80% {
+                transform: translateX(2px);
+            }
+        }
+
+        .glitch {
+            position: relative;
+        }
+
+        /* Scrollbar styling */
+        .terminal-text::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .terminal-text::-webkit-scrollbar-track {
+            background: #111;
+        }
+
+        .terminal-text::-webkit-scrollbar-thumb {
+            background: #333;
+        }
+
+        .terminal-text::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+    </style>
+    <style>
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 3rem;
+            }
+
+            .warning-icon {
+                font-size: 4rem;
+            }
+        }
+
+        @media (max-width: 480px) {
+            h1 {
+                font-size: 2rem;
+                border-width: 2px;
+            }
+
+            .warning-icon {
+                font-size: 3rem;
+            }
+
+            p {
+                font-size: 1rem;
+                padding: 0 10px;
+            }
+
+            .action-btn {
+                padding: 10px 20px;
+                font-size: 1rem;
+                width: 90%;
+            }
+
+            .terminal-container {
+                width: 95% !important;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="warning-icon">⚠️</div>
+    <h1 class="glitch">ACCESS DENIED</h1>
+
+    <p>UNAUTHORIZED ACCESS ATTEMPT DETECTED.</p>
+    <p style="font-size: 1rem; color: #aaa;">SECURITY PROTOCOLS ENGAGED. INCIDENT ID: <span id="incident-id"></span></p>
+
+    <div class="terminal-container">
+        <div class="terminal-header">
+            <span>root@tadrib-security-core:~# trace_intruder --lockdown --force</span>
+            <span>SECURE_SHELL_V2</span>
+        </div>
+        <div class="terminal-text" id="terminal">
+            <span id="terminal-content"></span><span class="cursor"></span>
+        </div>
+    </div>
+
+    <button class="action-btn" onclick="leaveImmediately()">LEAVE IMMEDIATELY</button>
+
+    <script>
+        // Generate random Incident ID
+        document.getElementById('incident-id').innerText = 'SEC-' + Math.floor(Math.random() * 1000000);
+
+        const terminalContent = document.getElementById('terminal-content');
+        const terminal = document.getElementById('terminal');
+
+        // TTS Logic
+        let isSpeaking = false;
+
+        function speakSecurityMessage() {
+            if ('speechSynthesis' in window) {
+                // Prevent stacking loops
+                if (isSpeaking && window.speechSynthesis.speaking) return;
+                isSpeaking = true;
+
+                const text = "ACCESS DENIED\n\nUnauthorized request detected. You are not authorized to be here.\n\nYour session has been logged, fingerprinted, and recorded for security analysis.\n\nSecurity rules have been enforced. Active protection mechanisms are now in place.\n\nThis endpoint is protected and access has been blocked permanently.\n\nThis incident is monitored in real time. Further attempts to retry, probe, or bypass this restriction will be escalated automatically.\n\nDo not retry. Do not probe. Exit immediately.";
+                const utterance = new SpeechSynthesisUtterance(text);
+
+                // Try to select a robotic/deep voice
+                const voices = window.speechSynthesis.getVoices();
+                const roboticVoice = voices.find(v => v.name.includes('Google US English') || v.name.includes('David') || v.name.includes('Male')) || voices[0];
+                if (roboticVoice) utterance.voice = roboticVoice;
+
+                utterance.pitch = 0.6;
+                utterance.rate = 0.85;
+                utterance.volume = 1.0;
+
+                // Loop logic: Restart when finished
+                utterance.onend = function () {
+                    isSpeaking = false;
+                    setTimeout(speakSecurityMessage, 500); // Short pause before repeating
+                };
+
+                // Error handling to ensure loop continues even if it breaks
+                utterance.onerror = function () {
+                    isSpeaking = false;
+                    setTimeout(speakSecurityMessage, 1000);
+                };
+
+                window.speechSynthesis.speak(utterance);
+            }
+        }
+
+        // Trigger TTS after delay
+        setTimeout(() => {
+            speakSecurityMessage();
+
+            // Aggressive fallback: Force start on any interaction if not already speaking
+            ['click', 'mousemove', 'keydown', 'scroll', 'touchstart'].forEach(event => {
+                document.body.addEventListener(event, () => {
+                    if (!window.speechSynthesis.speaking) {
+                        speakSecurityMessage();
+                    }
+                }, { once: true });
+            });
+        }, 3000); // 3 second delay
+
+        // Massive list of commands (100+ lines)
+        const commands = [
+            { text: "> INITIALIZING SECURITY PROTOCOLS...", delay: 200 },
+            { text: "> LOADING KERNEL MODULES: [OK]", delay: 100 },
+            { text: "> MOUNTING FILE SYSTEM: READ-ONLY", delay: 150 },
+            { text: "> CHECKING INTEGRITY CHECKSUMS...", delay: 300 },
+            { text: "> [CRITICAL] UNAUTHORIZED REQUEST DETECTED ON PORT 443", delay: 400, color: '#ff3333' },
+            { text: "> DEPLOYING FIREWALL COUNTERMEASURES...", delay: 200 },
+            { text: "> ACTIVATING INTRUSION DETECTION SYSTEM (IDS)...", delay: 250 },
+            { text: "> SCANNING INTRUDER SIGNATURE...", delay: 300 },
+            { text: "> [WARNING] SUSPICIOUS PACKET HEADER IDENTIFIED", delay: 150, color: 'yellow' },
+            { text: "> ANALYZING TCP/IP STACK...", delay: 200 },
+            { text: "> DUMPING MEMORY SEGMENT 0x004F2A...", delay: 100 },
+            { text: "> 00000000: 48 65 6C 6C 6F 20 57 6F 72 6C 64 00 00 00 00 00", delay: 50 },
+            { text: "> 00000010: FF FF FF FF 00 00 00 00 DE AD BE EF 00 00 00 00", delay: 50 },
+            { text: "> ATTEMPTING TO TRACE SOURCE IP...", delay: 400 },
+            { text: "> PINGING PROXY SERVERS...", delay: 200 },
+            { text: "> [ERROR] PROXY BYPASS FAILED. REAL IP EXPOSED.", delay: 300, color: '#ff3333' },
+            { text: "> TRIANGULATING SIGNAL TOWERS...", delay: 500 },
+            { text: "> CONNECTING TO SATELLITE UPLINK ALPHA-7...", delay: 600 },
+            { text: "> [SUCCESS] UPLINK ESTABLISHED.", delay: 200, color: '#00ff00' },
+            { text: "> DOWNLOADING GEOLOCATION DATA...", delay: 300 },
+            { text: "> PARSING GPS COORDINATES...", delay: 200 },
+            { text: "> LATITUDE: DETECTED. LONGITUDE: DETECTED.", delay: 200 },
+            { text: "> CROSS-REFERENCING WITH ISP DATABASE...", delay: 400 },
+            { text: "> ISP: MAROC TELECOM / ORANGE / INWI (DETECTED)", delay: 200 },
+            { text: "> CAPTURING DEVICE FINGERPRINT...", delay: 300 },
+            { text: "> USER-AGENT: EXTRACTED.", delay: 100 },
+            { text: "> SCREEN RESOLUTION: LOGGED.", delay: 100 },
+            { text: "> BATTERY LEVEL: ANALYZED.", delay: 100 },
+            { text: "> BROWSER PLUGINS: ENUMERATED.", delay: 100 },
+            { text: "> [SUCCESS] DEVICE FINGERPRINT LOGGED TO SECURE VAULT.", delay: 300, color: '#00ff00' },
+            { text: "> INITIATING BLACKLIST PROTOCOL...", delay: 200 },
+            { text: "> UPDATING FIREWALL RULES...", delay: 150 },
+            { text: "> ADDING IP TO GLOBAL BAN LIST...", delay: 150 },
+            { text: "> SYNCING WITH INTERPOL CYBERCRIME DATABASE...", delay: 500 },
+            { text: "> [ALERT] MATCH FOUND IN CRIMINAL RECORDS DATABASE.", delay: 600, color: 'yellow' },
+            { text: "> GENERATING INCIDENT REPORT #99283...", delay: 200 },
+            { text: "> ATTACHING LOG FILES...", delay: 150 },
+            { text: "> ENCRYPTING REPORT WITH AES-256...", delay: 300 },
+            { text: "> UPLOADING TO ADMIN CONSOLE...", delay: 800 },
+            { text: "> [SUCCESS] UPLOAD COMPLETE.", delay: 200, color: '#00ff00' },
+            { text: "> LOCKING DOWN API GATEWAY...", delay: 200 },
+            { text: "> REVOKING SSL CERTIFICATES...", delay: 200 },
+            { text: "> TERMINATING ACTIVE SESSIONS...", delay: 200 },
+            { text: "> FLUSHING DNS CACHE...", delay: 150 },
+            { text: "> BLOCKING SUBNET MASK 255.255.255.0...", delay: 200 },
+            { text: "> NOTIFYING ISP OF MALICIOUS ACTIVITY...", delay: 400 },
+            { text: "> SENDING CEASE AND DESIST ORDER...", delay: 300 },
+            { text: "> [CRITICAL] PERMANENT BAN PROTOCOL ACTIVATED.", delay: 500, color: '#ff3333' },
+            { text: "> DEPLOYING COUNTER-MEASURE SCRIPTS...", delay: 300 },
+            { text: "> EXECUTING 'rm -rf /tmp/intruder_session'...", delay: 200 },
+            { text: "> EXECUTING 'chmod 000 /api/v1/*'...", delay: 200 },
+            { text: "> SYSTEM LOCKDOWN IN PROGRESS...", delay: 1000 },
+            { text: "> 10% COMPLETE...", delay: 100 },
+            { text: "> 20% COMPLETE...", delay: 100 },
+            { text: "> 30% COMPLETE...", delay: 100 },
+            { text: "> 40% COMPLETE...", delay: 100 },
+            { text: "> 50% COMPLETE...", delay: 100 },
+            { text: "> 60% COMPLETE...", delay: 100 },
+            { text: "> 70% COMPLETE...", delay: 100 },
+            { text: "> 80% COMPLETE...", delay: 100 },
+            { text: "> 90% COMPLETE...", delay: 100 },
+            { text: "> 100% COMPLETE.", delay: 100, color: '#00ff00' },
+            { text: "> SYSTEM LOCKED.", delay: 500, color: '#ff3333' },
+            { text: "> MONITORING PORT 80... [SECURE]", delay: 200 },
+            { text: "> MONITORING PORT 443... [SECURE]", delay: 200 },
+            { text: "> MONITORING PORT 21... [SECURE]", delay: 200 },
+            { text: "> MONITORING PORT 22... [SECURE]", delay: 200 },
+            { text: "> SCANNING FOR BACKDOORS...", delay: 400 },
+            { text: "> NO BACKDOORS FOUND.", delay: 200 },
+            { text: "> RE-VERIFYING IP ADDRESS...", delay: 300 },
+            { text: "> IP CONFIRMED: STATIC.", delay: 200 },
+            { text: "> INITIATING TRACE ROUTE HOP 1...", delay: 100 },
+            { text: "> INITIATING TRACE ROUTE HOP 2...", delay: 100 },
+            { text: "> INITIATING TRACE ROUTE HOP 3...", delay: 100 },
+            { text: "> INITIATING TRACE ROUTE HOP 4...", delay: 100 },
+            { text: "> INITIATING TRACE ROUTE HOP 5...", delay: 100 },
+            { text: "> TRACE COMPLETE.", delay: 200 },
+            { text: "> LOGGING MAC ADDRESS...", delay: 200 },
+            { text: "> MAC: AA:BB:CC:DD:EE:FF", delay: 100 },
+            { text: "> CHECKING BLACKLIST REPUTATION...", delay: 300 },
+            { text: "> REPUTATION SCORE: -100 (DANGEROUS)", delay: 200, color: '#ff3333' },
+            { text: "> PREPARING LEGAL DOCUMENTS...", delay: 400 },
+            { text: "> GENERATING PDF REPORT...", delay: 300 },
+            { text: "> EMAILING ADMIN@TADRIB.MA...", delay: 200 },
+            { text: "> EMAIL SENT.", delay: 100 },
+            { text: "> ALERTING LOCAL AUTHORITIES...", delay: 500 },
+            { text: "> CONNECTION TO POLICE DISPATCH... [FAILED - SIMULATION]", delay: 200, color: 'yellow' },
+            { text: "> RETRYING CONNECTION...", delay: 300 },
+            { text: "> BYPASSING AUTHENTICATION...", delay: 200 },
+            { text: "> ACCESS GRANTED TO RESTRICTED NODE.", delay: 200 },
+            { text: "> DOWNLOADING PAYLOAD...", delay: 300 },
+            { text: "> EXECUTING DEFENSIVE SUBROUTINES...", delay: 200 },
+            { text: "> SUBROUTINE ALPHA: ACTIVE", delay: 100 },
+            { text: "> SUBROUTINE BETA: ACTIVE", delay: 100 },
+            { text: "> SUBROUTINE GAMMA: ACTIVE", delay: 100 },
+            { text: "> ALL SYSTEMS GREEN.", delay: 200, color: '#00ff00' },
+            { text: "> WAITING FOR INPUT...", delay: 1000 },
+            { text: "> TIMEOUT DETECTED.", delay: 200 },
+            { text: "> RESTARTING SECURITY LOOP...", delay: 500, color: 'cyan' },
+            { text: "----------------------------------------", delay: 100 },
+            { text: "> RE-INITIALIZING...", delay: 200 }
+        ];
+
+        let currentLine = 0;
+
+        async function runTerminal() {
+            // Fetch IP first to insert it dynamically
+            let userIP = "UNKNOWN";
+            try {
+                const res = await fetch('https://api.ipify.org?format=json');
+                const data = await res.json();
+                userIP = data.ip;
+            } catch (e) {
+                userIP = "192.168.1.105 (LOCAL)";
+            }
+
+            // Inject IP into the command list dynamically at index 14
+            commands.splice(14, 0, { text: `> TARGET IDENTIFIED: ${userIP}`, delay: 800, color: 'yellow' });
+
+            processNextLine();
+        }
+
+        function processNextLine() {
+            // Loop functionality
+            if (currentLine >= commands.length) {
+                currentLine = 0; // Reset to start
+            }
+
+            const cmd = commands[currentLine];
+            const div = document.createElement('div');
+            div.textContent = cmd.text;
+            if (cmd.color) div.style.color = cmd.color;
+
+            terminalContent.appendChild(div);
+
+            // Keep only last 50 lines to prevent DOM explosion over time
+            if (terminalContent.childElementCount > 50) {
+                terminalContent.removeChild(terminalContent.firstChild);
+            }
+
+            terminal.scrollTop = terminal.scrollHeight;
+
+            currentLine++;
+            setTimeout(processNextLine, cmd.delay);
+        }
+
+        function leaveImmediately() {
+            // Attempt to close
+            window.close();
+            // Fallback if script can't close window (common in modern browsers)
+            window.location.href = "https://www.google.com";
+        }
+
+        // Start the sequence
+        runTerminal();
+
+        // --- Security Enhancements: DevTools Detection ---
+
+        // 1. Block Keyboard Shortcuts
+        document.addEventListener('keydown', function (e) {
+            // F12
+            if (e.key === 'F12') {
+                e.preventDefault();
+                leaveImmediately();
+            }
+            // Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+Shift+C, Ctrl+U
+            if (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'J' || e.key === 'C')) {
+                e.preventDefault();
+                leaveImmediately();
+            }
+            if (e.ctrlKey && e.key === 'u') {
+                e.preventDefault();
+                leaveImmediately();
+            }
+        });
+
+        // 2. Block Right Click
+        document.addEventListener('contextmenu', function (e) {
+            e.preventDefault();
+        });
+
+        // 3. Debugger Trap (Detects open console)
+        setInterval(function () {
+            const start = performance.now();
+            debugger; // This will pause execution if DevTools is open
+            const end = performance.now();
+            if (end - start > 100) {
+                leaveImmediately();
+            }
+        }, 1000);
+
+    </script>
+
+</body>
+
+
+</html>
