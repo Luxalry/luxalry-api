@@ -42,7 +42,7 @@ async function writeLeadToSupabase(data, userEmail) {
     if (!supabase) return;
     console.log('DEBUG: writeLeadToSupabase called with email:', userEmail);
     try {
-        await supabase.from('leads').upsert({
+        const { error } = await supabase.from('leads').upsert({
             inquiry_id: data.inquiryId,
             full_name: data.customerName,
             email: data.customerEmail,
@@ -70,6 +70,10 @@ async function writeLeadToSupabase(data, userEmail) {
             utm_id: data.utm_id,
             last_updated_by: userEmail
         }, { onConflict: 'inquiry_id' });
+
+        if (error) {
+            console.error('DEBUG: Supabase Upsert Error:', error);
+        }
     } catch (e) { console.error('DB Write Error (Lead):', e.message); }
 }
 
