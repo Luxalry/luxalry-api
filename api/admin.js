@@ -57,7 +57,7 @@ async function writeLeadToSupabase(data, userEmail) {
 
             status: data.status,
             amount: data.finalAmount,
-            payment_method: data.paymentMethod,
+            payment_method: data.paymentMethod === 'cash' ? 'cod' : data.paymentMethod,
             transaction_id: data.transactionId,
             cashplus_code: data.cashplusCode,
             last4_digits: data.last4,
