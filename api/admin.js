@@ -55,7 +55,12 @@ async function writeLeadToSupabase(data, userEmail) {
             delivery_note: data.delivery_note,
             // ---------------------------------------------
 
-            status: data.status,
+            // --- [حماية إضافية] توحيد الحالات لقاعدة البيانات ---
+            status: (data.status === 'delivered') ? 'paid' : 
+                    (data.status === 'canceled' || data.status === 'failed') ? 'cancelled' : 
+                    data.status,
+            // --------------------------------------------------
+
             amount: data.finalAmount,
             payment_method: data.paymentMethod === 'cash' ? 'cod' : data.paymentMethod,
             transaction_id: data.transactionId,
