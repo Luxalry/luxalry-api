@@ -423,7 +423,6 @@ async function handleUpdateUser(req, res, context) { // <--- أضفنا context
             .from('user_roles')
             .upsert({
                 user_id: userId,
-                email: user.email,
                 role: role,
                 can_edit: role === 'super_admin' ? true : can_edit,
                 can_view_stats: role === 'super_admin' ? true : can_view_stats,
@@ -463,7 +462,6 @@ async function handleAddUser(req, res, context) { // <--- أضفنا context
                 .upsert([{
                     user_id: userData.user.id,
                     role: role,
-                    email: email,
                     can_edit: role === 'super_admin' ? true : (can_edit || false),
                     can_view_stats: role === 'super_admin' ? true : (can_view_stats || false)
                 }], { onConflict: 'user_id' }); // ضمان عدم التكرار
