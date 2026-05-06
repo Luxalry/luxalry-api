@@ -1144,7 +1144,7 @@ async function handlePost(req, res, user) {
             utm_id: newItem.utm_id // [NEW]
         };
         console.log('DEBUG: handlePost calling writeLeadToSupabase with:', user.email); // <--- DEBUG LOG
-        writeLeadToSupabase(syncedItem, user.email);
+        await writeLeadToSupabase(syncedItem, user.email);
         // ------------------------------------
 
         res.status(201).json({
@@ -1266,7 +1266,7 @@ async function handlePut(req, res, user) {
             utm_id: rowToUpdate.get('utm_id') // [NEW]
         };
         console.log('DEBUG: handlePut calling writeLeadToSupabase with:', user.email); // <--- DEBUG LOG
-        writeLeadToSupabase(syncedItem, user.email);
+        await writeLeadToSupabase(syncedItem, user.email);
         // ------------------------------------
 
         res.status(200).json({
@@ -1587,7 +1587,7 @@ async function handleUpdateSpend(req, res, context) {
             impressions: impressions || row.get('Impressions'),
             clicks: clicks || row.get('Clicks')
         };
-        writeSpendToSupabase(syncedSpend, context.email);
+        await writeSpendToSupabase(syncedSpend, context.email);
         // ------------------------------------
 
         res.status(200).json({ success: true, message: 'تم تعديل المصروف' });
