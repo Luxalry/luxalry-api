@@ -779,20 +779,45 @@ async function handleGet(req, res, user) {
         if (dataSource === 'supabase') {
             if (!supabase) return res.status(500).json({ error: 'Supabase client not initialized' });
 
-            // 1. Fetch Leads
-            const { data: leads, error: leadsError } = await supabase
-                .from('leads')
-                .select('*')
-                .order('created_at', { ascending: false });
+            // 1. Calculate Date Range for Supabase Query
+            let minDateISO = null;
+            let maxDateISO = null;
 
+            if (dateFilter && dateFilter !== 'all') {
+                const now = new Date();
+                if (dateFilter === 'custom' && startDate && endDate) {
+                    minDateISO = new Date(startDate).toISOString();
+                    const end = new Date(endDate);
+                    end.setHours(23, 59, 59, 999);
+                    maxDateISO = end.toISOString();
+                } else {
+                    const past = new Date();
+                    if (dateFilter === 'hour') past.setHours(now.getHours() - 1);
+                    else if (dateFilter === 'day') past.setDate(now.getDate() - 1);
+                    else if (dateFilter === 'week') past.setDate(now.getDate() - 7);
+                    else if (dateFilter === 'month') past.setDate(now.getDate() - 30);
+                    else if (dateFilter === '3month') past.setMonth(now.getMonth() - 3);
+                    else if (dateFilter === '6month') past.setMonth(now.getMonth() - 6);
+                    else if (dateFilter === '9month') past.setMonth(now.getMonth() - 9);
+                    else if (dateFilter === 'year') past.setFullYear(now.getFullYear() - 1);
+                    minDateISO = past.toISOString();
+                }
+            }
+
+            // 2. Fetch Leads with Date Limits
+            let leadsQuery = supabase.from('leads').select('*').order('created_at', { ascending: false });
+            if (minDateISO) leadsQuery = leadsQuery.gte('created_at', minDateISO);
+            if (maxDateISO) leadsQuery = leadsQuery.lte('created_at', maxDateISO);
+            
+            const { data: leads, error: leadsError } = await leadsQuery;
             if (leadsError) throw leadsError;
 
-            // 2. Fetch Spend
+            // 3. Fetch Spend with Date Limits
             try {
-                const { data: spend, error: spendError } = await supabase
-                    .from('marketing_spend')
-                    .select('*')
-                    .order('date', { ascending: false });
+                let spendQuery = supabase.from('marketing_spend').select('*').order('date', { ascending: false });
+                if (minDateISO) spendQuery = spendQuery.gte('date', minDateISO);
+                if (maxDateISO) spendQuery = spendQuery.lte('date', maxDateISO);
+                const { data: spend, error: spendError } = await spendQuery;
                 if (!spendError) spendData = spend;
             } catch (e) { console.warn('Spend fetch error:', e); }
 
