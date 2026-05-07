@@ -27,7 +27,7 @@ async function getGoogleSheet(sheetTitle) {
     // Auto-create sheet if missing (Robustness)
     if (!doc.sheetsByTitle[sheetTitle]) {
         let headers = [];
-        if (sheetTitle === 'Leads') headers = ['Timestamp', 'Inquiry ID', 'Full Name', 'Email', 'Phone Number', 'Product', 'Quantity', 'Address', 'Delivery Note', 'Payment Status', 'Payment Method', 'Transaction ID', 'CashPlus Code', 'Last4Digits', 'Amount', 'Currency', 'Lang', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'utm_id', 'Last Updated', 'Last Updated By']; if (sheetTitle === 'Marketing_Spend') headers = ['Spend ID', 'Date', 'Campaign', 'Source', 'utm_id', 'Ad Spend', 'Impressions', 'Clicks', 'Last Updated', 'Last Updated By'];
+        if (sheetTitle === 'Leads') headers = ['Timestamp', 'Order ID', 'Full Name', 'Email', 'Phone Number', 'Product', 'Quantity', 'Address', 'Delivery Note', 'Payment Status', 'Payment Method', 'Transaction ID', 'CashPlus Code', 'Last4Digits', 'Amount', 'Currency', 'Lang', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'utm_id', 'Last Updated', 'Last Updated By']; if (sheetTitle === 'Marketing_Spend') headers = ['Spend ID', 'Date', 'Campaign', 'Source', 'utm_id', 'Ad Spend', 'Impressions', 'Clicks', 'Last Updated', 'Last Updated By'];
         if (sheetTitle === 'Campaign_Registry') headers = ['Campaign Name', 'Budget', 'Start DateTime', 'End DateTime', 'Status', 'Last Updated', 'Last Updated By', 'utm_id'];
 
         if (headers.length > 0) {
@@ -94,12 +94,12 @@ async function syncLeads() {
     const stats = { to_sheet: 0, to_db: 0, updates_to_sheet: 0, updates_to_db: 0 };
 
     // Maps for O(1) lookup
-    const dbMap = new Map(dbRows.map(r => [r.inquiry_id, r]));
-    const sheetMap = new Map(rows.map(r => [r.get('Inquiry ID'), r]));
+    const dbMap = new Map(dbRows.map(r => [r.order_id, r]));
+    const sheetMap = new Map(rows.map(r => [r.get('Order ID'), r]));
 
     // --- A. Process Sheet Rows (Source of Truth 1) ---
     for (const row of rows) {
-        const id = row.get('Inquiry ID');
+        const id = row.get('Order ID');
         if (!id) continue;
 
         const dbItem = dbMap.get(id);
@@ -137,7 +137,7 @@ async function syncLeads() {
 
     // --- B. Process DB Rows (Source of Truth 2) ---
     for (const dbItem of dbRows) {
-        if (!sheetMap.has(dbItem.inquiry_id)) {
+        if (!sheetMap.has(dbItem.order_id)) {
             // Case 3: Exists in DB, Missing in Sheet -> Insert to Sheet
             await insertLeadToSheet(sheet, dbItem);
             stats.to_sheet++;
@@ -151,7 +151,7 @@ async function syncLeads() {
 async function insertLeadToDB(row) {
     let createdAt = parseDate(row.get('Timestamp')) || new Date();
     await supabase.from('leads').insert({
-        inquiry_id: row.get('Inquiry ID'),
+        order_id: row.get('Order ID'),
         full_name: row.get('Full Name'),
         email: row.get('Email'),
         phone: row.get('Phone Number'),
@@ -202,13 +202,13 @@ async function updateLeadInDB(row) {
         utm_id: row.get('utm_id'), // [NEW]
         last_updated: parseDate(row.get('Last Updated')) || new Date(),
         last_updated_by: row.get('Last Updated By')
-    }).eq('inquiry_id', row.get('Inquiry ID'));
+    }).eq('order_id', row.get('Order ID'));
 }
 
 async function insertLeadToSheet(sheet, dbItem) {
     await sheet.addRow({
         'Timestamp': dbItem.created_at,
-        'Inquiry ID': dbItem.inquiry_id,
+        'Order ID': dbItem.order_id,
         'Full Name': dbItem.full_name,
         'Email': dbItem.email,
         'Phone Number': dbItem.phone,
