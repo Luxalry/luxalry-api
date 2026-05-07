@@ -1,7 +1,7 @@
 import TelegramBot from 'node-telegram-bot-api';
 import { JWT } from 'google-auth-library';
 import { GoogleSpreadsheet } from 'google-spreadsheet';
-import { validateEmail, normalizePhone, sanitizeString, sanitizeTelegramHTML, normalizeQualificationName, normalizeExperienceName } from './utils.js';
+import { validateEmail, normalizePhone, sanitizeString, sanitizeTelegramHTML } from './utils.js';
 import crypto from 'crypto';
 import SibApiV3Sdk from 'sib-api-v3-sdk'; // [إضافة] مكتبة البريد
 import { emailTemplates } from './email-templates.js';
