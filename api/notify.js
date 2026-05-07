@@ -21,7 +21,7 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
 async function writeToSupabase(data) {
   try {
     const { error } = await supabase.from('leads').upsert({
-      inquiry_id: data.inquiryId,
+      order_id: data.orderId,
       full_name: data.clientName,
       email: data.clientEmail,
       phone: data.clientPhone,
@@ -50,7 +50,7 @@ async function writeToSupabase(data) {
       created_at: new Date().toISOString(),
       last_updated: new Date().toISOString(),
       last_updated_by: 'System'
-    }, { onConflict: 'inquiry_id' });
+    }, { onConflict: 'order_id' });
     if (error) throw error;
     console.log("Successfully saved to Supabase");
     return true;
@@ -208,6 +208,8 @@ export default async (req, res) => {
   // CORS Setup
   const allowedOrigins = [
     'https://dermossence.luxalry.shop',
+    'https://luxalry.shop',
+    'https://.luxalry.shop',
     'http://localhost:3000',
     'http://127.0.0.1:5500',
     'http://127.0.0.1:5501'
@@ -305,8 +307,7 @@ export default async (req, res) => {
 
     // معرف الطلب (Order ID)
     // هذا مهم: في الويب هوك يأتي غالباً في transaction.order_id
-    // من صفحة الهبوط (COD) يأتي في body.orderId
-    const rawInquiryId = transaction.order_id || metadata.inquiryId || body.inquiryId || body.orderId || payload.order_id || 'N/A';
+    const rawOrderId = transaction.order_id || metadata.orderId || body.orderId || payload.order_id || 'N/A';
 
     // --- معالجة الحالة والمبلغ (من transaction حصراً إذا وجدت) ---
     let statusRaw = transaction.status !== undefined ? transaction.status : (body.paymentStatus || body.status || 'pending');
@@ -318,8 +319,8 @@ export default async (req, res) => {
       finalStatus = 'failed';
     }
 
-    // معالجة المبلغ: من YouCanPay webhook (transaction.amount) أو من COD (body.productPrice)
-    let rawAmount = transaction.amount || body.amount || metadata.finalAmount || parseFloat(body.productPrice) || null;
+    // معالجة المبلغ (تحويل من السنتيم إذا لزم الأمر)
+    let rawAmount = transaction.amount || body.amount || metadata.finalAmount || null;
     if (rawAmount && rawAmount > 10000) rawAmount = rawAmount / 100;
 
     // باقي التفاصيل من Metadata أو Body
@@ -332,7 +333,7 @@ export default async (req, res) => {
     // --- بناء الكائن النهائي الموحد ---
     const normalizedData = {
       timestamp: new Date().toLocaleString('sv-SE', { timeZone: 'Africa/Casablanca' }),
-      inquiryId: sanitizeString(rawInquiryId),
+      orderId: sanitizeString(rawOrderId),
       clientName: sanitizeString(rawName),
       clientEmail: sanitizeString(rawEmail),
       clientPhone: normalizePhone(rawPhone),
@@ -387,7 +388,7 @@ export default async (req, res) => {
           // ... (Load headers logic if needed, skipped for brevity as sheet usually exists)
           await sheet.addRow({
             "Timestamp": normalizedData.timestamp,
-            "Inquiry ID": normalizedData.inquiryId,
+            "Order ID": normalizedData.orderId,
             "Full Name": normalizedData.clientName,
             "Email": normalizedData.clientEmail,
             "Phone Number": normalizedData.clientPhone,
@@ -444,7 +445,7 @@ ${t.note} ${sanitizeTelegramHTML(normalizedData.delivery_note)}
 -----------------------------------
 ${t.method} ${sanitizeTelegramHTML(normalizedData.paymentMethod)}
 ${t.amount} ${sanitizeTelegramHTML(normalizedData.amount)} ${normalizedData.currency}
-${t.req_id} ${sanitizeTelegramHTML(normalizedData.inquiryId)}
+${t.req_id} ${sanitizeTelegramHTML(normalizedData.orderId)}
 ${t.status} ${sanitizeTelegramHTML(normalizedData.paymentStatus)}
     `;
 
