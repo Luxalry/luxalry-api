@@ -43,7 +43,7 @@ async function writeLeadToSupabase(data, userEmail) {
     console.log('DEBUG: writeLeadToSupabase called with email:', userEmail);
     try {
         const { error } = await supabase.from('leads').upsert({
-            inquiry_id: data.inquiryId,
+            order_id: data.orderId,
             full_name: data.customerName,
             email: data.customerEmail,
             phone: data.customerPhone,
@@ -56,8 +56,7 @@ async function writeLeadToSupabase(data, userEmail) {
             // ---------------------------------------------
 
             // --- [حماية إضافية] توحيد الحالات لقاعدة البيانات ---
-            status: (data.status === 'delivered') ? 'paid' : 
-                    (data.status === 'canceled' || data.status === 'failed') ? 'cancelled' : 
+            status: (data.status === 'canceled' || data.status === 'failed') ? 'cancelled' : 
                     data.status,
             // --------------------------------------------------
 
@@ -74,7 +73,7 @@ async function writeLeadToSupabase(data, userEmail) {
             utm_content: data.utm_content,
             utm_id: data.utm_id,
             last_updated_by: userEmail
-        }, { onConflict: 'inquiry_id' });
+        }, { onConflict: 'order_id' });
 
         if (error) {
             console.error('DEBUG: Supabase Upsert Error:', error);
@@ -346,6 +345,7 @@ function calculateStatistics(dataArray) {
         if (isCard) stats.cardPayments++;
 
         switch (item.status) {
+            case 'delivered':
             case 'paid':
                 stats.paidPayments++; stats.netRevenue += amount;
                 if (isCashplus) { stats.paid_cashplus++; stats.net_cashplus_revenue += amount; }
@@ -807,7 +807,7 @@ async function handleGet(req, res, user) {
             // 4. Map Data (E-commerce)
             data = leads.map(l => ({
                 timestamp: l.created_at,
-                inquiryId: l.inquiry_id,
+                orderId: l.order_id,
                 customerName: l.full_name,
                 customerEmail: l.email,
                 customerPhone: l.phone,
@@ -931,7 +931,7 @@ async function handleGet(req, res, user) {
 
             data = rows.map(row => ({
                 timestamp: row.get('Timestamp') || '',
-                inquiryId: row.get('Inquiry ID') || '',
+                orderId: row.get('Order ID') || '',
                 customerName: row.get('Full Name') || '',
                 customerEmail: row.get('Email') || '',
                 customerPhone: row.get('Phone Number') || '',
@@ -1089,7 +1089,7 @@ async function handlePost(req, res, user) {
         // إضافة صف جديد مع ربط دقيق لكل الأعمدة في Google Sheets
         await sheet.addRow({
             'Timestamp': customTimestamp,
-            'Inquiry ID': newItem.inquiryId,
+            'Order ID': newItem.orderId,
             'Full Name': newItem.customerName,
             'Email': newItem.customerEmail,
             'Phone Number': newItem.customerPhone,
@@ -1123,7 +1123,7 @@ async function handlePost(req, res, user) {
 
         // --- (NEW) Dual-Write to Supabase ---
         const syncedItem = {
-            inquiryId: newItem.inquiryId,
+            orderId: newItem.orderId,
             customerName: newItem.customerName,
             customerEmail: newItem.customerEmail,
             customerPhone: newItem.customerPhone,
@@ -1175,7 +1175,7 @@ async function handlePut(req, res, user) {
         const rows = await sheet.getRows();
 
         const updatedItem = req.body;
-        const id = updatedItem.originalInquiryId; // نستخدم المعرف الأصلي للبحث
+        const id = updatedItem.originalOrderId; // نستخدم المعرف الأصلي للبحث
 
         if (!id) {
             return res.status(400).json({ error: 'ID is required for update' });
@@ -1183,7 +1183,7 @@ async function handlePut(req, res, user) {
 
         // البحث عن الصف
         const rowIndex = rows.findIndex(row =>
-            row.get('Inquiry ID') === id || row.get('Transaction ID') === id
+            row.get('Order ID') === id || row.get('Transaction ID') === id
         );
 
         if (rowIndex === -1) {
@@ -1239,7 +1239,7 @@ async function handlePut(req, res, user) {
         // --- (NEW) Dual-Write to Supabase ---
         // Construct full object from updated row for DB sync
         const syncedItem = {
-            inquiryId: rowToUpdate.get('Inquiry ID'),
+            orderId: rowToUpdate.get('Order ID'),
             customerName: rowToUpdate.get('Full Name'),
             customerEmail: rowToUpdate.get('Email'),
             customerPhone: rowToUpdate.get('Phone Number'),
@@ -1303,9 +1303,9 @@ async function handleDelete(req, res, user) {
         const sheet = await getGoogleSheet(); // Connect to sheet
         const rows = await sheet.getRows();
 
-        // Find the row with matching id (inquiryId or transactionId)
+        // Find the row with matching id (orderId or transactionId)
         const rowIndex = rows.findIndex(row =>
-            row.get('Inquiry ID') === id || row.get('Transaction ID') === id
+            row.get('Order ID') === id || row.get('Transaction ID') === id
         );
 
         if (rowIndex === -1) {
@@ -1318,11 +1318,11 @@ async function handleDelete(req, res, user) {
         // --- (NEW) Dual-Write to Supabase ---
         if (supabase) {
             try {
-                // Delete by inquiry_id OR transaction_id
+                // Delete by order_id OR transaction_id
                 const { error } = await supabase
                     .from('leads')
                     .delete()
-                    .or(`inquiry_id.eq.${id},transaction_id.eq.${id}`);
+                    .or(`order_id.eq.${id},transaction_id.eq.${id}`);
 
                 if (error) console.error('Supabase Delete Error:', error);
             } catch (e) {
