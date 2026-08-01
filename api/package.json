@@ -1,7 +1,7 @@
 {
-  "name": "tadrib-notify-pay-server",
+  "name": "Luxalry API server",
   "version": "1.0.0",
-  "description": "Serverless functions for Tadrib.ma",
+  "description": "Serverless functions for Luxalry",
   "main": "index.js",
   "type": "module",
   "scripts": {
@@ -12,8 +12,11 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.84.0",
     "axios": "^1.7.2",
+    "google-auth-library": "^9.11.0",
+    "google-spreadsheet": "^4.1.2",
     "node-telegram-bot-api": "^0.66.0",
-    "pg": "^8.11.0"
+    "pg": "^8.11.0",
+    "sib-api-v3-sdk": "^8.5.0"
   },
   "optionalDependencies": {
     "better-sqlite3": "^8.1.0"
