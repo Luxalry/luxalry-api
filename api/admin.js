@@ -14,8 +14,9 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 // تنبيه: نحتاج Service Role Key لإدارة المستخدمين (إنشاء/حذف)، وليس المفتاح العام
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const ESCALATION_SECRET = process.env.ESCALATION_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY;
-if (!ESCALATION_SECRET) console.error('Critical: SUPABASE_SERVICE_ROLE_KEY is missing');
+// [SECURITY FIX]: Never fallback to the DB service key for JWT signing
+const ESCALATION_SECRET = process.env.ESCALATION_SECRET || crypto.randomBytes(32).toString('hex');
+if (!process.env.ESCALATION_SECRET) console.warn('Warning: ESCALATION_SECRET is missing. Escalation tokens will be invalid across server reboots.');
 
 let supabase = null;
 
