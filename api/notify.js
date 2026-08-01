@@ -1,6 +1,5 @@
 import TelegramBot from 'node-telegram-bot-api';
-import { JWT } from 'google-auth-library';
-import { GoogleSpreadsheet } from 'google-spreadsheet';
+// Google Sheets removed to enforce Supabase as Single Source of Truth
 import { validateEmail, normalizePhone, sanitizeString, sanitizeTelegramHTML } from './utils.js';
 import crypto from 'crypto';
 import SibApiV3Sdk from 'sib-api-v3-sdk'; // [إضافة] مكتبة البريد
@@ -70,9 +69,6 @@ async function getRawBody(req) {
 }
 
 // 1. إعدادات الأمان
-const GOOGLE_SHEET_ID = process.env.GOOGLE_SHEET_ID;
-const GOOGLE_SERVICE_ACCOUNT_EMAIL = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-const GOOGLE_PRIVATE_KEY = process.env.GOOGLE_PRIVATE_KEY;
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 // [تحديث] دعم عدة مستلمين مفصولين بفاصلة
 const TELEGRAM_CHAT_IDS = (process.env.TELEGRAM_CHAT_ID || '').split(',').map(id => id.trim()).filter(Boolean);
@@ -84,13 +80,9 @@ const EMAIL_SENDER_ADDRESS = process.env.EMAIL_SENDER_ADDRESS;
 const EMAIL_SENDER_NAME = "Luxalry";
 
 // التحقق من المتغيرات البيئية
-if (!GOOGLE_SHEET_ID || !GOOGLE_SERVICE_ACCOUNT_EMAIL || !GOOGLE_PRIVATE_KEY ||
-  !TELEGRAM_BOT_TOKEN || TELEGRAM_CHAT_IDS.length === 0) {
+if (!TELEGRAM_BOT_TOKEN || TELEGRAM_CHAT_IDS.length === 0) {
   console.error('CRITICAL: Missing required environment variables for notify service');
 }
-
-// 2. تهيئة Google Sheet
-let doc;
 
 // ترجمة الرسائل (Telegram)
 const telegramTranslations = {
@@ -144,19 +136,16 @@ const telegramTranslations = {
 // قوالب البريد الإلكتروني (نستخدم القوالب المشتركة الآن)
 const emailConfirmationTemplates = emailTemplates.payment_confirmation;
 
-// دالة مصادقة Google Sheets
-async function authGoogleSheets() {
-  try {
-    const serviceAccountAuth = new JWT({
-      email: GOOGLE_SERVICE_ACCOUNT_EMAIL,
-      key: GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
-      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-    });
-
-    doc = new GoogleSpreadsheet(GOOGLE_SHEET_ID, serviceAccountAuth);
-    await doc.loadInfo();
-  } catch (e) {
-    console.error("Google Sheets Auth Error:", e.message);
+// دالة إعادة المحاولة (Retry System)
+async function withRetry(operation, maxRetries = 3, delay = 1000) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (attempt === maxRetries) throw error;
+      console.warn(`Attempt ${attempt} failed, retrying in ${delay}ms...`);
+      await new Promise(res => setTimeout(res, delay));
+    }
   }
 }
 
@@ -181,27 +170,23 @@ async function sendConfirmationEmail(data) {
     return;
   }
 
-  try {
-    const defaultClient = SibApiV3Sdk.ApiClient.instance;
-    const apiKey = defaultClient.authentications['api-key'];
-    apiKey.apiKey = BREVO_API_KEY;
+  const defaultClient = SibApiV3Sdk.ApiClient.instance;
+  const apiKey = defaultClient.authentications['api-key'];
+  apiKey.apiKey = BREVO_API_KEY;
 
-    const apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
+  const apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
 
-    const lang = emailConfirmationTemplates[data.lang] ? data.lang : 'fr';
-    const template = emailConfirmationTemplates[lang];
+  const lang = emailConfirmationTemplates[data.lang] ? data.lang : 'fr';
+  const template = emailConfirmationTemplates[lang];
 
-    const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
-    sendSmtpEmail.subject = template.subject;
-    sendSmtpEmail.htmlContent = `<html><body>${template.body(data)}</body></html>`;
-    sendSmtpEmail.sender = { name: EMAIL_SENDER_NAME, email: EMAIL_SENDER_ADDRESS };
-    sendSmtpEmail.to = [{ email: data.clientEmail, name: data.clientName }];
+  const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
+  sendSmtpEmail.subject = template.subject;
+  sendSmtpEmail.htmlContent = `<html><body>${template.body(data)}</body></html>`;
+  sendSmtpEmail.sender = { name: EMAIL_SENDER_NAME, email: EMAIL_SENDER_ADDRESS };
+  sendSmtpEmail.to = [{ email: data.clientEmail, name: data.clientName }];
 
-    await apiInstance.sendTransacEmail(sendSmtpEmail);
-    console.log(`Confirmation email sent to ${data.clientEmail}`);
-  } catch (error) {
-    console.error("Email Sending Error:", error.message);
-  }
+  await apiInstance.sendTransacEmail(sendSmtpEmail);
+  console.log(`Confirmation email sent to ${data.clientEmail}`);
 }
 
 export default async (req, res) => {
@@ -378,58 +363,9 @@ export default async (req, res) => {
     // --- الترجمة ---
     const t = telegramTranslations[normalizedData.lang] || telegramTranslations['fr'];
 
-    // --- الحفظ المزدوج (Dual Write: Google Sheets + Supabase) ---
-    const sheetPromise = (async () => {
-      try {
-        await authGoogleSheets();
-        if (doc) {
-          let sheet = doc.sheetsByTitle["Leads"];
-          if (!sheet) sheet = await doc.addSheet({ title: "Leads" });
-          // ... (Load headers logic if needed, skipped for brevity as sheet usually exists)
-          await sheet.addRow({
-            "Timestamp": normalizedData.timestamp,
-            "Order ID": normalizedData.orderId,
-            "Full Name": normalizedData.clientName,
-            "Email": normalizedData.clientEmail,
-            "Phone Number": normalizedData.clientPhone,
-
-            // --- E-Commerce Columns ---
-            "Product": normalizedData.productTitle,
-            "Quantity": normalizedData.productVariant,
-            "Address": normalizedData.clientAddress,
-            "Delivery Note": normalizedData.delivery_note,
-            // --------------------------
-
-            "Payment Method": normalizedData.paymentMethod,
-            "CashPlus Code": normalizedData.cashplusCode,
-            "Last4Digits": normalizedData.last4,
-            "Amount": normalizedData.amount,
-            "Currency": normalizedData.currency,
-            "Lang": normalizedData.lang,
-            "utm_source": normalizedData.utm_source,
-            "utm_medium": normalizedData.utm_medium,
-            "utm_campaign": normalizedData.utm_campaign,
-            "utm_term": normalizedData.utm_term,
-            "utm_content": normalizedData.utm_content,
-            "utm_id": normalizedData.utm_id,
-            "Payment Status": normalizedData.paymentStatus,
-            "Transaction ID": normalizedData.transactionId,
-            "Last Updated": new Date().toISOString(),
-            "Last Updated By": "System"
-          });
-          console.log("Successfully saved to Google Sheets");
-          return true;
-        }
-      } catch (e) {
-        console.error("Sheet Error:", e.message);
-        throw e;
-      }
-    })();
-
-    const dbPromise = writeToSupabase(normalizedData);
-
-    // ننتظر انتهاء العمليتين (لا نوقف التنفيذ إذا فشلت إحداهما)
-    await Promise.allSettled([sheetPromise, dbPromise]);
+    // --- حفظ البيانات في Supabase (المصدر الوحيد للحقيقة) ---
+    // لم نعد نستخدم Google Sheets لتسريع العملية ومنع التكرار
+    await writeToSupabase(normalizedData);
 
     // --- إرسال Telegram ---
     const message = `
@@ -449,20 +385,17 @@ ${t.req_id} ${sanitizeTelegramHTML(normalizedData.orderId)}
 ${t.status} ${sanitizeTelegramHTML(normalizedData.paymentStatus)}
     `;
 
-    try {
-      // [تحديث] إرسال للجميع
-      const sendPromises = TELEGRAM_CHAT_IDS.map(chatId =>
-        bot.sendMessage(chatId, message, { parse_mode: 'HTML' })
-          .catch(e => console.error(`Failed to send to ${chatId}:`, e.message))
-      );
-      await Promise.allSettled(sendPromises);
-    } catch (botError) {
-      console.error("Telegram Error:", botError.message);
-    }
+    // [تحديث] إرسال رسائل Telegram مع نظام إعادة المحاولة
+    const sendPromises = TELEGRAM_CHAT_IDS.map(chatId =>
+      withRetry(() => bot.sendMessage(chatId, message, { parse_mode: 'HTML' }), 3, 1000)
+        .catch(e => console.error(`Failed to send to ${chatId} after 3 retries:`, e.message))
+    );
+    await Promise.allSettled(sendPromises);
 
-    // --- [إضافة جديدة] إرسال بريد تأكيد الدفع ---
+    // --- [إضافة جديدة] إرسال بريد تأكيد الدفع مع إعادة المحاولة ---
     if (normalizedData.paymentStatus === 'paid' && normalizedData.clientEmail && normalizedData.clientEmail !== 'Unknown') {
-      await sendConfirmationEmail(normalizedData);
+      await withRetry(() => sendConfirmationEmail(normalizedData), 3, 1000)
+        .catch(e => console.error("Email Sending Error after 3 retries:", e.message));
     }
 
     res.status(200).json({ result: 'success', message: 'Notification processed.' });
