@@ -2,8 +2,6 @@ import TelegramBot from 'node-telegram-bot-api';
 // Google Sheets removed to enforce Supabase as Single Source of Truth
 import { validateEmail, normalizePhone, sanitizeString, sanitizeTelegramHTML } from './utils.js';
 import crypto from 'crypto';
-import SibApiV3Sdk from 'sib-api-v3-sdk'; // [إضافة] مكتبة البريد
-import { emailTemplates } from './email-templates.js';
 
 // --- [إضافة جديدة] إعدادات لتعطيل معالجة Vercel التلقائية ---
 export const config = {
@@ -74,11 +72,6 @@ const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_IDS = (process.env.TELEGRAM_CHAT_ID || '').split(',').map(id => id.trim()).filter(Boolean);
 const YOUCAN_PRIVATE_KEY = process.env.YOUCAN_PRIVATE_KEY;
 
-// إعدادات البريد (Brevo)
-const BREVO_API_KEY = process.env.BREVO_API_KEY;
-const EMAIL_SENDER_ADDRESS = process.env.EMAIL_SENDER_ADDRESS;
-const EMAIL_SENDER_NAME = "Luxalry";
-
 // التحقق من المتغيرات البيئية
 if (!TELEGRAM_BOT_TOKEN || TELEGRAM_CHAT_IDS.length === 0) {
   console.error('CRITICAL: Missing required environment variables for notify service');
@@ -133,9 +126,6 @@ const telegramTranslations = {
   }
 };
 
-// قوالب البريد الإلكتروني (نستخدم القوالب المشتركة الآن)
-const emailConfirmationTemplates = emailTemplates.payment_confirmation;
-
 // دالة إعادة المحاولة (Retry System)
 async function withRetry(operation, maxRetries = 3, delay = 1000) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -161,32 +151,6 @@ function verifyYouCanSignature(privateKey, payload, receivedSignature) {
     .digest('hex');
 
   return signature === receivedSignature;
-}
-
-// دالة إرسال البريد (Brevo)
-async function sendConfirmationEmail(data) {
-  if (!BREVO_API_KEY || !EMAIL_SENDER_ADDRESS) {
-    console.warn("Skipping email: Brevo not configured.");
-    return;
-  }
-
-  const defaultClient = SibApiV3Sdk.ApiClient.instance;
-  const apiKey = defaultClient.authentications['api-key'];
-  apiKey.apiKey = BREVO_API_KEY;
-
-  const apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
-
-  const lang = emailConfirmationTemplates[data.lang] ? data.lang : 'fr';
-  const template = emailConfirmationTemplates[lang];
-
-  const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
-  sendSmtpEmail.subject = template.subject;
-  sendSmtpEmail.htmlContent = `<html><body>${template.body(data)}</body></html>`;
-  sendSmtpEmail.sender = { name: EMAIL_SENDER_NAME, email: EMAIL_SENDER_ADDRESS };
-  sendSmtpEmail.to = [{ email: data.clientEmail, name: data.clientName }];
-
-  await apiInstance.sendTransacEmail(sendSmtpEmail);
-  console.log(`Confirmation email sent to ${data.clientEmail}`);
 }
 
 export default async (req, res) => {
@@ -391,12 +355,6 @@ ${t.status} ${sanitizeTelegramHTML(normalizedData.paymentStatus)}
         .catch(e => console.error(`Failed to send to ${chatId} after 3 retries:`, e.message))
     );
     await Promise.allSettled(sendPromises);
-
-    // --- [إضافة جديدة] إرسال بريد تأكيد الدفع مع إعادة المحاولة ---
-    if (normalizedData.paymentStatus === 'paid' && normalizedData.clientEmail && normalizedData.clientEmail !== 'Unknown') {
-      await withRetry(() => sendConfirmationEmail(normalizedData), 3, 1000)
-        .catch(e => console.error("Email Sending Error after 3 retries:", e.message));
-    }
 
     res.status(200).json({ result: 'success', message: 'Notification processed.' });
 
