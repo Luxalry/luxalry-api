@@ -322,7 +322,7 @@ export default async (req, res) => {
     }
 
     // معالجة المبلغ (تحويل من السنتيم إذا لزم الأمر)
-    let rawAmount = transaction.amount || body.amount || metadata.finalAmount || null;
+    let rawAmount = transaction.amount || body.amount || body.productPrice || body.price || metadata.finalAmount || null;
     if (rawAmount && rawAmount > 10000) rawAmount = rawAmount / 100;
 
     // باقي التفاصيل من Metadata أو Body
