@@ -175,6 +175,7 @@ function verifyYouCanSignature(privateKey, payload, receivedSignature) {
 }
 
 // دالة إرسال البريد (Brevo)
+/*
 async function sendConfirmationEmail(data) {
   if (!BREVO_API_KEY || !EMAIL_SENDER_ADDRESS) {
     console.warn("Skipping email: Brevo not configured.");
@@ -203,6 +204,7 @@ async function sendConfirmationEmail(data) {
     console.error("Email Sending Error:", error.message);
   }
 }
+*/
 
 export default async (req, res) => {
   // CORS Setup
@@ -461,9 +463,11 @@ ${t.status} ${sanitizeTelegramHTML(normalizedData.paymentStatus)}
     }
 
     // --- [إضافة جديدة] إرسال بريد تأكيد الدفع ---
+    /*
     if (normalizedData.paymentStatus === 'paid' && normalizedData.clientEmail && normalizedData.clientEmail !== 'Unknown') {
       await sendConfirmationEmail(normalizedData);
     }
+    */
 
     res.status(200).json({ result: 'success', message: 'Notification processed.' });
 
