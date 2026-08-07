@@ -347,7 +347,7 @@ export default async (req, res) => {
       delivery_note: sanitizeString(rawNote),
       // -------------------------
 
-      paymentMethod: (function() {
+      paymentMethod: (function () {
         const raw = String(pmObj.name || transaction.payment_method || body.payment_method || metadata.paymentMethod || 'cod').toLowerCase();
         if (raw.includes('cod') || raw.includes('cash')) return 'cod';
         if (raw.includes('card') || raw.includes('stripe') || raw.includes('cmi')) return 'card';
@@ -444,7 +444,7 @@ export default async (req, res) => {
 ${t.title}
 -----------------------------------
 ${t.product} ${sanitizeTelegramHTML(normalizedData.productTitle)}
-${t.quantity} ${sanitizeTelegramHTML(normalizedData.productVariant)} عبوة
+${t.quantity} ${sanitizeTelegramHTML(normalizedData.productVariant)}
 -----------------------------------
 ${t.name} ${sanitizeTelegramHTML(normalizedData.clientName)}
 ${t.phone} ${sanitizeTelegramHTML(normalizedData.clientPhone)}
