@@ -347,7 +347,13 @@ export default async (req, res) => {
       delivery_note: sanitizeString(rawNote),
       // -------------------------
 
-      paymentMethod: sanitizeString(pmObj.name || transaction.payment_method || body.payment_method || metadata.paymentMethod || 'COD'),
+      paymentMethod: (function() {
+        const raw = String(pmObj.name || transaction.payment_method || body.payment_method || metadata.paymentMethod || 'cod').toLowerCase();
+        if (raw.includes('cod') || raw.includes('cash')) return 'cod';
+        if (raw.includes('card') || raw.includes('stripe') || raw.includes('cmi')) return 'card';
+        if (raw.includes('cashplus')) return 'cashplus';
+        return 'other';
+      })(),
       cashplusCode: sanitizeString(cashplus.code || null),
       last4: finalLast4,
 
