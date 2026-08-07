@@ -142,7 +142,7 @@ const telegramTranslations = {
 };
 
 // قوالب البريد الإلكتروني (نستخدم القوالب المشتركة الآن)
-const emailConfirmationTemplates = emailTemplates.payment_confirmation;
+/*const emailConfirmationTemplates = emailTemplates.payment_confirmation;*/
 
 // دالة مصادقة Google Sheets
 async function authGoogleSheets() {
