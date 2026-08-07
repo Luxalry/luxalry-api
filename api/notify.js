@@ -4,7 +4,7 @@ import { GoogleSpreadsheet } from 'google-spreadsheet';
 import { validateEmail, normalizePhone, sanitizeString, sanitizeTelegramHTML } from './utils.js';
 import crypto from 'crypto';
 import SibApiV3Sdk from 'sib-api-v3-sdk'; // [إضافة] مكتبة البريد
-import { emailTemplates } from './email-templates.js';
+/*import { emailTemplates } from './email-templates.js';*/
 
 // --- [إضافة جديدة] إعدادات لتعطيل معالجة Vercel التلقائية ---
 export const config = {
