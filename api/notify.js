@@ -28,9 +28,11 @@ async function writeToSupabase(data) {
 
       // --- E-commerce Fields ---
       product_name: data.productTitle,
+      product_sku: data.productSku,
       quantity: data.productVariant,
       address: data.clientAddress,
       delivery_note: data.delivery_note,
+      is_external: data.is_external,
       // -------------------------
 
       status: data.paymentStatus,
@@ -327,10 +329,12 @@ export default async (req, res) => {
 
     // باقي التفاصيل من Metadata أو Body
     const rawProduct = metadata.productTitle || body.productTitle || 'Dermossence';
+    const rawSku = metadata.sku || body.sku || 'N/A';
     const rawVariant = metadata.productVariant || body.productVariant || '1';
     const rawAddress = metadata.clientAddress || body.clientAddress || 'غير محدد';
     const rawNote = metadata.delivery_note || body.delivery_note || body.note || 'لا توجد ملاحظات';
     const rawLang = metadata.lang || body.currentLang || body.lang || 'ar';
+    const rawIsExternal = metadata.is_external !== undefined ? metadata.is_external : (body.is_external !== undefined ? body.is_external : false);
 
     // --- بناء الكائن النهائي الموحد ---
     const normalizedData = {
@@ -342,9 +346,11 @@ export default async (req, res) => {
 
       // --- E-Commerce Fields ---
       productTitle: sanitizeString(rawProduct),
+      productSku: sanitizeString(rawSku),
       productVariant: sanitizeString(rawVariant),
       clientAddress: sanitizeString(rawAddress),
       delivery_note: sanitizeString(rawNote),
+      is_external: Boolean(rawIsExternal),
       // -------------------------
 
       paymentMethod: (function () {
@@ -403,9 +409,11 @@ export default async (req, res) => {
 
             // --- E-Commerce Columns ---
             "Product": normalizedData.productTitle,
+            "SKU": normalizedData.productSku,
             "Quantity": normalizedData.productVariant,
             "Address": normalizedData.clientAddress,
             "Delivery Note": normalizedData.delivery_note,
+            "External": normalizedData.is_external ? 'Yes' : 'No',
             // --------------------------
 
             "Payment Method": normalizedData.paymentMethod,
