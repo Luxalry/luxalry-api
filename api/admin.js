@@ -225,11 +225,12 @@ async function getRequestContext(req) {
         const systemClient = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 
         // جلب الصلاحيات من جدول user_roles
-        const { data: roleData, error: roleError } = await systemClient
+        const { data: roleDataArray, error: roleError } = await systemClient
             .from('user_roles')
             .select('role, can_edit, can_view_stats, is_frozen, first_name, last_name')
-            .eq('user_id', user.id)
-            .single();
+            .eq('user_id', user.id);
+            
+        const roleData = roleDataArray && roleDataArray.length > 0 ? roleDataArray[0] : null;
 
         if (roleData?.is_frozen) return null; // حساب مجمد
 
@@ -735,11 +736,12 @@ async function handleLogin(req, res) {
             if (!error && data.user && data.session) {
                 // نستخدم systemClient بدلاً من supabase (الذي يعمل بـ anon) لتجنب مشاكل الـ Schema Cache
                 const systemClient = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
-                const { data: roleData } = await systemClient
+                const { data: roleDataArray } = await systemClient
                     .from('user_roles')
                     .select('role, can_edit, can_view_stats, is_frozen, first_name, last_name') // جلب الصلاحيات الجديدة والأسماء
-                    .eq('user_id', data.user.id)
-                    .single();
+                    .eq('user_id', data.user.id);
+                    
+                const roleData = roleDataArray && roleDataArray.length > 0 ? roleDataArray[0] : null;
 
                 if (roleData?.is_frozen) {
                     return res.status(403).json({
