@@ -50,6 +50,7 @@ async function writeLeadToSupabase(data, userEmail) {
 
             // --- تم التعديل لتناسب التجارة الإلكترونية ---
             product_name: data.productTitle || 'Dermossence',
+            product_sku: data.productSku || null,
             quantity: data.productVariant,
             address: data.clientAddress,
             delivery_note: data.delivery_note,
@@ -389,7 +390,7 @@ async function handleGetUsers(res, context) { // <--- أضفنا context
     // 2. جلب تفاصيل الأدوار
     const { data: rolesData } = await db
         .from('user_roles')
-        .select('user_id, role, is_frozen, can_edit, can_view_stats');
+        .select('user_id, role, is_frozen, can_edit, can_view_stats, can_view_internal, can_view_external, first_name, last_name');
 
     const rolesMap = {};
     if (rolesData) {
@@ -405,7 +406,11 @@ async function handleGetUsers(res, context) { // <--- أضفنا context
             role: r.role || 'editor',
             is_frozen: !!r.is_frozen,
             can_edit: !!r.can_edit,
-            can_view_stats: !!r.can_view_stats
+            can_view_stats: !!r.can_view_stats,
+            can_view_internal: r.can_view_internal ?? true,
+            can_view_external: !!r.can_view_external,
+            first_name: r.first_name || '',
+            last_name: r.last_name || ''
         };
     });
 
@@ -414,7 +419,7 @@ async function handleGetUsers(res, context) { // <--- أضفنا context
 
 // تحديث بيانات الموظف
 async function handleUpdateUser(req, res, context) { // <--- أضفنا context
-    const { userId, role, can_edit, can_view_stats, is_frozen } = req.body;
+    const { userId, role, can_edit, can_view_stats, is_frozen, can_view_internal, can_view_external, first_name, last_name } = req.body;
 
     // استخدام العميل "Service Role" الموجود في السياق
     const db = context.type === 'backdoor' ? context.dbClient : context.systemClient;
@@ -435,7 +440,11 @@ async function handleUpdateUser(req, res, context) { // <--- أضفنا context
                 role: role,
                 can_edit: role === 'super_admin' ? true : can_edit,
                 can_view_stats: role === 'super_admin' ? true : can_view_stats,
-                is_frozen: is_frozen
+                is_frozen: is_frozen,
+                can_view_internal: role === 'super_admin' ? true : (can_view_internal ?? true),
+                can_view_external: role === 'super_admin' ? true : can_view_external,
+                first_name: first_name,
+                last_name: last_name
             }, { onConflict: 'user_id' })
             .select();
 
@@ -451,7 +460,7 @@ async function handleUpdateUser(req, res, context) { // <--- أضفنا context
 
 // إضافة موظف جديد
 async function handleAddUser(req, res, context) { // <--- أضفنا context
-    const { email, password, role, can_edit, can_view_stats } = req.body;
+    const { email, password, role, can_edit, can_view_stats, can_view_internal, can_view_external, first_name, last_name } = req.body;
 
     const db = context.type === 'backdoor' ? context.dbClient : context.systemClient;
     if (!db) return res.status(403).json({ error: 'System Access Required' });
@@ -472,7 +481,11 @@ async function handleAddUser(req, res, context) { // <--- أضفنا context
                     user_id: userData.user.id,
                     role: role,
                     can_edit: role === 'super_admin' ? true : (can_edit || false),
-                    can_view_stats: role === 'super_admin' ? true : (can_view_stats || false)
+                    can_view_stats: role === 'super_admin' ? true : (can_view_stats || false),
+                    can_view_internal: role === 'super_admin' ? true : (can_view_internal ?? true),
+                    can_view_external: role === 'super_admin' ? true : (can_view_external || false),
+                    first_name: first_name,
+                    last_name: last_name
                 }], { onConflict: 'user_id' }); // ضمان عدم التكرار
 
             if (roleError) {
@@ -716,7 +729,7 @@ async function handleLogin(req, res) {
             if (!error && data.user && data.session) {
                 const { data: roleData } = await supabase
                     .from('user_roles')
-                    .select('role, can_edit, can_view_stats, is_frozen') // جلب الصلاحيات الجديدة
+                    .select('role, can_edit, can_view_stats, is_frozen, first_name, last_name') // جلب الصلاحيات الجديدة والأسماء
                     .eq('user_id', data.user.id)
                     .single();
 
@@ -731,6 +744,8 @@ async function handleLogin(req, res) {
                     message: 'Logged in via Supabase',
                     token: data.session.access_token,
                     role: roleData?.role || 'editor',
+                    first_name: roleData?.first_name || '',
+                    last_name: roleData?.last_name || '',
                     // نرسل كائن الصلاحيات للواجهة
                     permissions: {
                         can_edit: roleData?.role === 'super_admin' ? true : (roleData?.can_edit ?? false),
@@ -839,9 +854,11 @@ async function handleGet(req, res, user) {
 
                 // --- E-commerce Fields ---
                 productTitle: l.product_name || 'Dermossence',
+                productSku: l.product_sku || '',
                 productVariant: l.quantity || '1',
                 clientAddress: l.address || '',
                 delivery_note: l.delivery_note || '',
+                isExternal: !!l.is_external,
                 // -------------------------
 
                 status: l.status || 'pending',
@@ -963,9 +980,11 @@ async function handleGet(req, res, user) {
 
                 // --- E-commerce Fields ---
                 productTitle: row.get('Product') || 'Dermossence',
+                productSku: row.get('SKU') || '',
                 productVariant: row.get('Quantity') || '1',
                 clientAddress: row.get('Address') || '',
                 delivery_note: row.get('Delivery Note') || '',
+                isExternal: row.get('External') === 'Yes',
                 // -------------------------
 
                 status: row.get('Payment Status') || 'pending',
@@ -1019,6 +1038,19 @@ async function handleGet(req, res, user) {
                 }
             }
         } catch (e) { keyDiagnostics = { error: e.message }; }
+
+        // --- (SECURITY) Filter data based on is_external and user permissions ---
+        const canViewInternal = user.permissions?.can_view_internal ?? true;
+        const canViewExternal = user.permissions?.can_view_external ?? false;
+        
+        data = data.filter(item => {
+            if (item.isExternal) {
+                return canViewExternal;
+            } else {
+                return canViewInternal;
+            }
+        });
+        // ------------------------------------------------------------------------
 
         const overallStats = calculateStatistics(data);
         const isFiltered = !!(searchTerm || statusFilter || paymentFilter || (dateFilter && dateFilter !== 'all'));
@@ -1121,6 +1153,7 @@ async function handlePost(req, res, user) {
 
             // --- تم التعديل لتناسب التجارة الإلكترونية ---
             'Product': newItem.productTitle || 'Dermossence',
+            'SKU': newItem.productSku || 'DERMO-PRO-01',
             'Quantity': newItem.productVariant || '1',
             'Address': newItem.clientAddress || '',
             'Delivery Note': newItem.delivery_note || '',
@@ -1153,6 +1186,7 @@ async function handlePost(req, res, user) {
             customerEmail: newItem.customerEmail,
             customerPhone: newItem.customerPhone,
             productTitle: newItem.productTitle,
+            productSku: newItem.productSku,
             quantity: newItem.productVariant,
             status: newItem.status,
             finalAmount: newItem.finalAmount,
@@ -1240,6 +1274,7 @@ async function handlePut(req, res, user) {
         if (updatedItem.customerPhone) rowToUpdate.set('Phone Number', updatedItem.customerPhone);
 
         if (updatedItem.productTitle) rowToUpdate.set('Product', updatedItem.productTitle);
+        if (updatedItem.productSku) rowToUpdate.set('SKU', updatedItem.productSku);
         if (updatedItem.quantity || updatedItem.productVariant) rowToUpdate.set('Quantity', updatedItem.quantity || updatedItem.productVariant);
         if (updatedItem.address || updatedItem.clientAddress) rowToUpdate.set('Address', updatedItem.address || updatedItem.clientAddress);
         if (updatedItem.deliveryNote) rowToUpdate.set('Delivery Note', updatedItem.deliveryNote);
@@ -1271,6 +1306,7 @@ async function handlePut(req, res, user) {
 
             // --- E-commerce Fields ---
             productTitle: rowToUpdate.get('Product'),
+            productSku: rowToUpdate.get('SKU'),
             productVariant: rowToUpdate.get('Quantity'),
             clientAddress: rowToUpdate.get('Address'),
             delivery_note: rowToUpdate.get('Delivery Note'),
@@ -1474,7 +1510,7 @@ async function authenticateUser(req, res) {
                 // جلب الصلاحيات
                 const { data: roleData } = await supabase
                     .from('user_roles')
-                    .select('role, can_edit, can_view_stats, is_frozen') // <---
+                    .select('role, can_edit, can_view_stats, is_frozen, can_view_internal, can_view_external') // <---
                     .eq('user_id', user.id)
                     .single();
 
@@ -1490,7 +1526,9 @@ async function authenticateUser(req, res) {
                     // إضافة الصلاحيات للكائن
                     permissions: {
                         can_edit: roleData?.role === 'super_admin' ? true : !!roleData?.can_edit,
-                        can_view_stats: roleData?.role === 'super_admin' ? true : !!roleData?.can_view_stats
+                        can_view_stats: roleData?.role === 'super_admin' ? true : !!roleData?.can_view_stats,
+                        can_view_internal: roleData?.role === 'super_admin' ? true : (roleData?.can_view_internal ?? true),
+                        can_view_external: roleData?.role === 'super_admin' ? true : !!roleData?.can_view_external
                     },
                     type: 'supabase'
                 };
