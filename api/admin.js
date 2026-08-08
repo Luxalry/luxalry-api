@@ -225,7 +225,7 @@ async function getRequestContext(req) {
         // نستخدم userClient هنا، لذا يجب أن تسمح سياسات RLS بالقراءة (وهذا ما فعلناه سابقاً)
         const { data: roleData } = await userClient
             .from('user_roles')
-            .select('role, can_edit, can_view_stats, is_frozen')
+            .select('role, can_edit, can_view_stats, is_frozen, first_name, last_name')
             .eq('user_id', user.id)
             .single();
 
@@ -239,6 +239,8 @@ async function getRequestContext(req) {
             role: roleData?.role || 'editor',
             email: user.email,
             id: user.id,
+            first_name: roleData?.first_name || '',
+            last_name: roleData?.last_name || '',
             // هذا العميل مقيد بصلاحيات الموظف
             dbClient: userClient,
             // إذا كان سوبر أدمن، نعطيه Admin Client لعمليات التعديل الحساسة، وإلا نعطيه User Client
@@ -1092,7 +1094,9 @@ async function handleGet(req, res, user) {
                 email: user.email,
                 role: user.role,
                 permissions: user.permissions || { can_edit: false, can_view_stats: false },
-                is_frozen: user.is_frozen || false
+                is_frozen: user.is_frozen || false,
+                first_name: user.first_name || '',
+                last_name: user.last_name || ''
             }
         });
 
