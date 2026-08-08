@@ -221,9 +221,11 @@ async function getRequestContext(req) {
 
         if (error || !user) return null; // توكن غير صالح
 
+        // نستخدم systemClient بدلاً من userClient لتجنب مشاكل RLS و Schema Cache
+        const systemClient = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+
         // جلب الصلاحيات من جدول user_roles
-        // نستخدم userClient هنا، لذا يجب أن تسمح سياسات RLS بالقراءة (وهذا ما فعلناه سابقاً)
-        const { data: roleData } = await userClient
+        const { data: roleData } = await systemClient
             .from('user_roles')
             .select('role, can_edit, can_view_stats, is_frozen, first_name, last_name')
             .eq('user_id', user.id)
@@ -729,7 +731,9 @@ async function handleLogin(req, res) {
             });
 
             if (!error && data.user && data.session) {
-                const { data: roleData } = await supabase
+                // نستخدم systemClient بدلاً من supabase (الذي يعمل بـ anon) لتجنب مشاكل الـ Schema Cache
+                const systemClient = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+                const { data: roleData } = await systemClient
                     .from('user_roles')
                     .select('role, can_edit, can_view_stats, is_frozen, first_name, last_name') // جلب الصلاحيات الجديدة والأسماء
                     .eq('user_id', data.user.id)
