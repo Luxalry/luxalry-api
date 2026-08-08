@@ -1106,7 +1106,8 @@ async function handleGet(req, res, user) {
                 first_name: user.first_name || '',
                 last_name: user.last_name || '',
                 DEBUG_ERROR: user.DEBUG_ROLE_ERROR,
-                DEBUG_DATA: user.DEBUG_ROLE_DATA
+                DEBUG_DATA: user.DEBUG_ROLE_DATA,
+                DEBUG_USER_ID: user.id
             }
         });
 
