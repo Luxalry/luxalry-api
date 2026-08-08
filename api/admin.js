@@ -225,7 +225,7 @@ async function getRequestContext(req) {
         const systemClient = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 
         // جلب الصلاحيات من جدول user_roles
-        const { data: roleData } = await systemClient
+        const { data: roleData, error: roleError } = await systemClient
             .from('user_roles')
             .select('role, can_edit, can_view_stats, is_frozen, first_name, last_name')
             .eq('user_id', user.id)
@@ -252,7 +252,9 @@ async function getRequestContext(req) {
                 can_view_stats: isSuper ? true : !!roleData?.can_view_stats
             },
             // نحتفظ بمرجع للـ Service Client للحالات الطارئة للمدراء فقط
-            systemClient: isSuper ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } }) : null
+            systemClient: isSuper ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } }) : null,
+            DEBUG_ROLE_ERROR: roleError,
+            DEBUG_ROLE_DATA: roleData
         };
     }
 
@@ -1100,7 +1102,9 @@ async function handleGet(req, res, user) {
                 permissions: user.permissions || { can_edit: false, can_view_stats: false },
                 is_frozen: user.is_frozen || false,
                 first_name: user.first_name || '',
-                last_name: user.last_name || ''
+                last_name: user.last_name || '',
+                DEBUG_ERROR: user.DEBUG_ROLE_ERROR,
+                DEBUG_DATA: user.DEBUG_ROLE_DATA
             }
         });
 
