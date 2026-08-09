@@ -155,7 +155,7 @@ async function getRequestContext(req) {
             email: 'master_admin@system.local',
             // هذا العميل يملك صلاحية تعديل أي شيء
             dbClient: adminClient,
-            permissions: { can_edit: true, can_view_stats: true }
+            permissions: { can_edit: true, can_view_stats: true, can_view_internal: true, can_view_external: true }
         };
     }
 
@@ -193,7 +193,7 @@ async function getRequestContext(req) {
                             role: 'super_admin',
                             email: 'escalated_admin@system.local',
                             dbClient: adminClient,
-                            permissions: { can_edit: true, can_view_stats: true },
+                            permissions: { can_edit: true, can_view_stats: true, can_view_internal: true, can_view_external: true },
                             isEscalated: true
                         };
                     }
@@ -227,7 +227,7 @@ async function getRequestContext(req) {
         // جلب الصلاحيات من جدول user_roles
         const { data: roleDataArray, error: roleError } = await systemClient
             .from('user_roles')
-            .select('role, can_edit, can_view_stats, is_frozen, first_name, last_name')
+            .select('role, can_edit, can_view_stats, can_view_internal, can_view_external, is_frozen, first_name, last_name')
             .eq('user_id', user.id);
             
         const roleData = roleDataArray && roleDataArray.length > 0 ? roleDataArray[0] : null;
@@ -250,7 +250,9 @@ async function getRequestContext(req) {
             // هذه نقطة ذكية: الموظف العادي يستخدم عميله، المدير يستخدم عميل الخدمة عند الحاجة
             permissions: {
                 can_edit: isSuper ? true : !!roleData?.can_edit,
-                can_view_stats: isSuper ? true : !!roleData?.can_view_stats
+                can_view_stats: isSuper ? true : !!roleData?.can_view_stats,
+                can_view_internal: isSuper ? true : (roleData?.can_view_internal !== false), // default true for old roles
+                can_view_external: isSuper ? true : !!roleData?.can_view_external
             },
             // نحتفظ بمرجع للـ Service Client للحالات الطارئة للمدراء فقط
             systemClient: isSuper ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } }) : null,
