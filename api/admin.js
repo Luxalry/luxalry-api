@@ -530,6 +530,32 @@ async function handleDeleteUser(req, res, context) { // <--- أضفنا context
     return res.status(200).json({ success: true, message: 'User deleted' });
 }
 
+// تحديث الملف الشخصي للموظف نفسه
+async function handleUpdateProfile(req, res, context) {
+    const { first_name, last_name } = req.body;
+    
+    // نستخدم systemClient لأن الموظف قد لا يملك صلاحية تعديل جدول user_roles بصفة مباشرة
+    const systemClient = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+    
+    if (!context || !context.id) {
+        return res.status(403).json({ error: 'User context is missing' });
+    }
+
+    try {
+        const { error } = await systemClient
+            .from('user_roles')
+            .update({ first_name: first_name, last_name: last_name })
+            .eq('user_id', context.id);
+
+        if (error) throw error;
+
+        return res.status(200).json({ success: true, message: 'Profile updated successfully', first_name, last_name });
+    } catch (error) {
+        console.error('Update Profile Error:', error);
+        return res.status(500).json({ error: error.message });
+    }
+}
+
 // تغيير كلمة المرور (للمستخدم نفسه أو من قبل الأدمن)
 async function handleChangePassword(req, res, currentUser) {
     const { newPassword, userId } = req.body;
@@ -554,12 +580,15 @@ async function handleChangePassword(req, res, currentUser) {
  * ===================================================================
  */
 export default async function handler(req, res) {
-    // 1. CORS Setup
+    // 1. CORS Setup & Cache Control
     const origin = req.headers.origin || '*';
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
 
     // 2. Preflight Requests
     if (req.method === 'OPTIONS') {
@@ -592,8 +621,8 @@ export default async function handler(req, res) {
             // الباب الخلفي دائماً مسموح، Supabase فقط إذا كان Super Admin
             const isAllowed = context.type === 'backdoor' || context.role === 'super_admin';
 
-            // استثناء: تغيير كلمة المرور مسموح للنفس
-            if (!isAllowed && action !== 'change_password') {
+            // استثناء: تغيير كلمة المرور وتحديث الملف الشخصي مسموح للنفس
+            if (!isAllowed && action !== 'change_password' && action !== 'update_profile') {
                 return res.status(403).json({ error: 'Forbidden: Admins Only' });
             }
 
@@ -602,6 +631,8 @@ export default async function handler(req, res) {
             if (action === 'add_user') return handleAddUser(req, res, context);
             if (action === 'delete_user') return handleDeleteUser(req, res, context);
             if (action === 'update_user') return handleUpdateUser(req, res, context);
+            if (action === 'update_profile') return handleUpdateProfile(req, res, context);
+
 
             // التعامل مع تغيير كلمة المرور (حالة خاصة تحتاج user object)
             // سنتركها تمر للأسفل قليلاً لاستخدام authenticateUser القديم أو نعالجها هنا
