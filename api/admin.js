@@ -40,7 +40,6 @@ if (SUPABASE_URL && SUPABASE_SERVICE_KEY) {
 // ===================================================================
 async function writeLeadToSupabase(data, userEmail) {
     if (!supabase) return;
-    console.log('DEBUG: writeLeadToSupabase called with email:', userEmail);
     try {
         const { error } = await supabase.from('leads').upsert({
             order_id: data.orderId,
@@ -531,40 +530,66 @@ async function handleDeleteUser(req, res, context) { // <--- أضفنا context
 }
 
 // تحديث الملف الشخصي للموظف نفسه
+// [FIX #6] أضفنا Input Validation لمنع الإدخال الضار
 async function handleUpdateProfile(req, res, context) {
+    if (!context || !context.id) {
+        return res.status(403).json({ error: 'User context is missing. Please log in again.' });
+    }
+
     const { first_name, last_name } = req.body;
+
+    // التحقق من المدخلات
+    if (first_name !== undefined && (typeof first_name !== 'string' || first_name.length > 50)) {
+        return res.status(400).json({ error: 'الاسم الأول يجب أن لا يتجاوز 50 حرفاً' });
+    }
+    if (last_name !== undefined && (typeof last_name !== 'string' || last_name.length > 50)) {
+        return res.status(400).json({ error: 'الاسم الأخير يجب أن لا يتجاوز 50 حرفاً' });
+    }
+
+    // تنظيف القيم
+    const cleanFirstName = (first_name || '').trim();
+    const cleanLastName = (last_name || '').trim();
     
     // نستخدم systemClient لأن الموظف قد لا يملك صلاحية تعديل جدول user_roles بصفة مباشرة
     const systemClient = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
-    
-    if (!context || !context.id) {
-        return res.status(403).json({ error: 'User context is missing' });
-    }
 
     try {
         const { error } = await systemClient
             .from('user_roles')
-            .update({ first_name: first_name, last_name: last_name })
+            .update({ first_name: cleanFirstName, last_name: cleanLastName })
             .eq('user_id', context.id);
 
         if (error) throw error;
 
-        return res.status(200).json({ success: true, message: 'Profile updated successfully', first_name, last_name });
+        return res.status(200).json({ success: true, message: 'Profile updated successfully', first_name: cleanFirstName, last_name: cleanLastName });
     } catch (error) {
         console.error('Update Profile Error:', error);
         return res.status(500).json({ error: error.message });
     }
 }
 
+
 // تغيير كلمة المرور (للمستخدم نفسه أو من قبل الأدمن)
+// [FIX #4] نستخدم systemClient المعزول بدلاً من supabase العالمي + نتحقق من وجود id
 async function handleChangePassword(req, res, currentUser) {
     const { newPassword, userId } = req.body;
+
+    if (!newPassword || newPassword.length < 6) {
+        return res.status(400).json({ error: 'كلمة المرور يجب أن تكون 6 أحرف على الأقل' });
+    }
 
     // إذا كان سوبر أدمن ومعه userId -> يغير لأي شخص
     // إذا كان مستخدم عادي -> يغير لنفسه فقط
     const targetId = (currentUser.role === 'super_admin' && userId) ? userId : currentUser.id;
 
-    const { error } = await supabase.auth.admin.updateUserById(
+    if (!targetId) {
+        return res.status(400).json({ error: 'لا يمكن تحديد المستخدم المستهدف. يرجى تسجيل الخروج والدخول مجدداً.' });
+    }
+
+    // [FIX] نُنشئ عميل آمن معزول بدلاً من الاعتماد على supabase العالمي
+    const systemClient = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+
+    const { error } = await systemClient.auth.admin.updateUserById(
         targetId,
         { password: newPassword }
     );
@@ -572,6 +597,7 @@ async function handleChangePassword(req, res, currentUser) {
     if (error) throw error;
     return res.status(200).json({ success: true, message: 'Password updated' });
 }
+
 
 
 /**
@@ -613,7 +639,7 @@ export default async function handler(req, res) {
         // ============================================================
         // 3. توجيه عمليات إدارة المستخدمين (User Management)
         // ============================================================
-        const userMgmtActions = ['get_users', 'add_user', 'delete_user', 'change_password', 'update_user'];
+        const userMgmtActions = ['get_users', 'add_user', 'delete_user', 'change_password', 'update_user', 'update_profile'];
 
         if (userMgmtActions.includes(action)) {
 
@@ -641,11 +667,18 @@ export default async function handler(req, res) {
 
         // 4. Authentication Check (Legacy wrapper for older functions)
         // نحتاج هذا الكائن للدوال التي لم نقم بتحديثها بالكامل لتقبل context
+        // [FIX #1] نُعيد بناء user object بشكل كامل لتجنب فقدان البيانات
         const user = {
             email: context.email,
             role: context.role,
             type: context.type,
-            permissions: context.permissions
+            id: context.id || null,                          // [FIX] كان مفقوداً
+            first_name: context.first_name || '',            // [FIX] كان مفقوداً
+            last_name: context.last_name || '',              // [FIX] كان مفقوداً
+            is_frozen: context.is_frozen || false,           // [FIX] كان مفقوداً
+            permissions: context.permissions,
+            DEBUG_ROLE_ERROR: context.DEBUG_ROLE_ERROR,
+            DEBUG_ROLE_DATA: context.DEBUG_ROLE_DATA
         };
 
         if (!user) {
@@ -771,7 +804,7 @@ async function handleLogin(req, res) {
                 const systemClient = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
                 const { data: roleDataArray } = await systemClient
                     .from('user_roles')
-                    .select('role, can_edit, can_view_stats, is_frozen, first_name, last_name') // جلب الصلاحيات الجديدة والأسماء
+                    .select('role, can_edit, can_view_stats, can_view_internal, can_view_external, is_frozen, first_name, last_name') // [FIX #5]
                     .eq('user_id', data.user.id);
                     
                 const roleData = roleDataArray && roleDataArray.length > 0 ? roleDataArray[0] : null;
@@ -789,10 +822,12 @@ async function handleLogin(req, res) {
                     role: roleData?.role || 'editor',
                     first_name: roleData?.first_name || '',
                     last_name: roleData?.last_name || '',
-                    // نرسل كائن الصلاحيات للواجهة
+                    // [FIX #5] أضفنا can_view_internal و can_view_external لتجنب الارتعاش في الواجهة
                     permissions: {
                         can_edit: roleData?.role === 'super_admin' ? true : (roleData?.can_edit ?? false),
-                        can_view_stats: roleData?.role === 'super_admin' ? true : (roleData?.can_view_stats ?? false)
+                        can_view_stats: roleData?.role === 'super_admin' ? true : (roleData?.can_view_stats ?? false),
+                        can_view_internal: roleData?.role === 'super_admin' ? true : (roleData?.can_view_internal ?? true),
+                        can_view_external: roleData?.role === 'super_admin' ? true : (roleData?.can_view_external ?? false)
                     },
                     type: 'supabase'
                 });
@@ -1083,14 +1118,17 @@ async function handleGet(req, res, user) {
         } catch (e) { keyDiagnostics = { error: e.message }; }
 
         // --- (SECURITY) Filter data based on is_external and user permissions ---
-        const canViewInternal = user.permissions?.can_view_internal ?? true;
-        const canViewExternal = user.permissions?.can_view_external ?? false;
+        // [FIX #3] السوبر أدمن والباب الخلفي يرون كل شيء دائماً
+        const isSuperAdmin = user.role === 'super_admin' || user.type === 'backdoor';
+        const canViewInternal = isSuperAdmin ? true : (user.permissions?.can_view_internal ?? true);
+        const canViewExternal = isSuperAdmin ? true : (user.permissions?.can_view_external ?? false);
         
         data = data.filter(item => {
             if (item.isExternal) {
                 return canViewExternal;
             } else {
                 return canViewInternal;
+
             }
         });
         // ------------------------------------------------------------------------
@@ -1250,7 +1288,6 @@ async function handlePost(req, res, user) {
             utm_content: newItem.utm_content,
             utm_id: newItem.utm_id // [NEW]
         };
-        console.log('DEBUG: handlePost calling writeLeadToSupabase with:', user.email); // <--- DEBUG LOG
         await writeLeadToSupabase(syncedItem, user.email);
         // ------------------------------------
 
@@ -1374,7 +1411,6 @@ async function handlePut(req, res, user) {
             utm_content: rowToUpdate.get('utm_content'),
             utm_id: rowToUpdate.get('utm_id') // [NEW]
         };
-        console.log('DEBUG: handlePut calling writeLeadToSupabase with:', user.email); // <--- DEBUG LOG
         await writeLeadToSupabase(syncedItem, user.email);
         // ------------------------------------
 
