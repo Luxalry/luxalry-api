@@ -5,6 +5,7 @@ import { validateEmail, normalizePhone, sanitizeString, sanitizeTelegramHTML } f
 import crypto from 'crypto';
 import SibApiV3Sdk from 'sib-api-v3-sdk'; // [إضافة] مكتبة البريد
 /*import { emailTemplates } from './email-templates.js';*/
+import { sendWhatsAppConfirmation } from './whatsapp.js'; // [إضافة] وحدة الواتساب
 
 // --- [إضافة جديدة] إعدادات لتعطيل معالجة Vercel التلقائية ---
 export const config = {
@@ -90,6 +91,7 @@ if (!GOOGLE_SHEET_ID || !GOOGLE_SERVICE_ACCOUNT_EMAIL || !GOOGLE_PRIVATE_KEY ||
   !TELEGRAM_BOT_TOKEN || TELEGRAM_CHAT_IDS.length === 0) {
   console.error('CRITICAL: Missing required environment variables for notify service');
 }
+
 
 // 2. تهيئة Google Sheet
 let doc;
@@ -207,7 +209,6 @@ async function sendConfirmationEmail(data) {
   }
 }
 */
-
 export default async (req, res) => {
   // CORS Setup
   const allowedOrigins = [
@@ -482,6 +483,12 @@ ${t.status} ${sanitizeTelegramHTML(normalizedData.paymentStatus)}
       await sendConfirmationEmail(normalizedData);
     }
     */
+
+    // --- إرسال رسالة واتساب تلقائية للمبيعات الناجحة ---
+    if (normalizedData.paymentStatus === 'paid' || normalizedData.paymentStatus === 'delivered' || normalizedData.paymentStatus === 'confirmed') {
+      // يمكنك تعديل الشرط أعلاه ليطابق الحالات التي تريد الإرسال فيها
+      await sendWhatsAppConfirmation(normalizedData);
+    }
 
     res.status(200).json({ result: 'success', message: 'Notification processed.' });
 
