@@ -1,3 +1,31 @@
+// ملف whatsapp.js لإدارة رسائل WhatsApp API (Meta)
+
+/**
+ * دليل إنشاء القوالب في منصة Meta:
+ * ستحتاج لإنشاء قالب واحد باسم `order_confirmation` يحتوي على ثلاث لغات (العربية، الفرنسية، الإنجليزية).
+ * 
+ * القالب (العربية - ar):
+ * مرحباً {{1}}،
+ * تم تأكيد طلبك لمنتج {{2}} بنجاح بقيمة {{3}}. سنتواصل معك قريباً لتأكيد موعد التوصيل.
+ * 
+ * القالب (الفرنسية - fr):
+ * Bonjour {{1}},
+ * Votre commande pour le produit {{2}} d'un montant de {{3}} a été confirmée avec succès. Nous vous contacterons bientôt pour la livraison.
+ * 
+ * القالب (الإنجليزية - en_US):
+ * Hello {{1}},
+ * Your order for {{2}} amounting to {{3}} has been confirmed successfully. We will contact you soon for delivery.
+ */
+
+function resolveWhatsAppLanguage(lang) {
+  if (!lang) return 'fr';
+  const l = lang.toLowerCase().trim();
+  if (l === 'ar') return 'ar';
+  if (l === 'fr') return 'fr';
+  if (l === 'en' || l === 'en-us' || l === 'en_us') return 'en_US';
+  return 'fr'; // fallback
+}
+
 // إعدادات WhatsApp API (Meta)
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const WHATSAPP_PHONE_ID = process.env.WHATSAPP_PHONE_ID;
@@ -24,7 +52,7 @@ export async function sendWhatsAppConfirmation(data) {
     }
 
     // تحديد لغة العميل
-    const langCode = data.lang === 'ar' ? 'ar' : (data.lang === 'en' ? 'en' : 'fr');
+    const langCode = resolveWhatsAppLanguage(data.lang);
 
     const payload = {
       messaging_product: "whatsapp",
@@ -48,7 +76,7 @@ export async function sendWhatsAppConfirmation(data) {
       }
     };
 
-    const response = await fetch(`https://graph.facebook.com/v17.0/${WHATSAPP_PHONE_ID}/messages`, {
+    const response = await fetch(`https://graph.facebook.com/v20.0/${WHATSAPP_PHONE_ID}/messages`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${WHATSAPP_TOKEN}`,
@@ -59,9 +87,12 @@ export async function sendWhatsAppConfirmation(data) {
 
     const result = await response.json();
     if (!response.ok) {
-      throw new Error(JSON.stringify(result));
+      throw new Error(`Meta API Error: ${result.error?.message || JSON.stringify(result)}`);
     }
-    console.log(`WhatsApp confirmation sent to ${phone} (Lang: ${langCode})`);
+    
+    // إخفاء جزء من رقم الهاتف في السجلات للحماية
+    const maskedPhone = phone.length >= 8 ? phone.substring(0, 4) + '***' + phone.slice(-2) : '***';
+    console.log(`WhatsApp confirmation sent to ${maskedPhone} (Template: ${TEMPLATE_NAME}, Lang: ${langCode})`);
   } catch (error) {
     console.error("WhatsApp Sending Error:", error.message);
   }
