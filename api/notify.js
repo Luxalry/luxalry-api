@@ -227,10 +227,24 @@ export default async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
   }
 
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
+
+  // --- Meta WhatsApp Webhook Verification (GET) ---
+  if (req.method === 'GET') {
+    const mode = req.query['hub.mode'];
+    const token = req.query['hub.verify_token'];
+    const challenge = req.query['hub.challenge'];
+    
+    // We only process Meta verification GET requests. Any other GET is 403.
+    if (mode === 'subscribe' && token === process.env.WHATSAPP_VERIFY_TOKEN) {
+      return res.status(200).send(challenge);
+    }
+    return res.status(403).json({ message: 'Forbidden' });
+  }
+
   if (req.method !== 'POST') return res.status(405).json({ message: 'Method Not Allowed' });
 
   let bot;
