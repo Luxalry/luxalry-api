@@ -32,6 +32,7 @@ async function writeToSupabase(data) {
       product_sku: data.productSku,
       quantity: data.productVariant,
       address: data.clientAddress,
+      note: data.note,
       delivery_note: data.delivery_note,
       is_external: data.is_external,
       // -------------------------
@@ -99,7 +100,7 @@ let doc;
 // ترجمة الرسائل (Telegram)
 const telegramTranslations = {
   ar: {
-    title: "🔥 <b>طلب جديد (Dermossence)</b> 📦",
+    title: "<b>طلب جديد</b>",
     product: "<b>المنتج:</b>",
     quantity: "<b>الكمية:</b>",
     address: "<b>العنوان:</b>",
@@ -114,7 +115,7 @@ const telegramTranslations = {
     lang: "<b>اللغة:</b>"
   },
   fr: {
-    title: "🔥 <b>Nouvelle Commande (Dermossence)</b> 📦",
+    title: "<b>Nouvelle Commande</b> ",
     product: "<b>Produit:</b>",
     quantity: "<b>Quantité:</b>",
     address: "<b>Adresse:</b>",
@@ -129,7 +130,7 @@ const telegramTranslations = {
     lang: "<b>Langue:</b>"
   },
   en: {
-    title: "🔥 <b>New Order (Dermossence)</b> 📦",
+    title: "<b>New Order</b> ",
     product: "<b>Product:</b>",
     quantity: "<b>Quantity:</b>",
     address: "<b>Address:</b>",
@@ -213,6 +214,7 @@ export default async (req, res) => {
   // CORS Setup
   const allowedOrigins = [
     'https://dermossence.luxalry.shop',
+    'https://luxalry.ma',
     'https://luxalry.shop',
     'https://.luxalry.shop',
     'http://localhost:3000',
@@ -237,7 +239,7 @@ export default async (req, res) => {
     const mode = req.query['hub.mode'];
     const token = req.query['hub.verify_token'];
     const challenge = req.query['hub.challenge'];
-    
+
     // We only process Meta verification GET requests. Any other GET is 403.
     if (mode === 'subscribe' && token === process.env.WHATSAPP_VERIFY_TOKEN) {
       return res.status(200).send(challenge);
@@ -343,11 +345,12 @@ export default async (req, res) => {
     if (rawAmount && rawAmount > 10000) rawAmount = rawAmount / 100;
 
     // باقي التفاصيل من Metadata أو Body
-    const rawProduct = metadata.productTitle || body.productTitle || 'Dermossence';
+    const rawProduct = metadata.productTitle || body.productTitle || '';
     const rawSku = metadata.sku || body.sku || 'N/A';
-    const rawVariant = metadata.productVariant || body.productVariant || '1';
+    const rawVariant = metadata.productVariant || body.productVariant || '';
     const rawAddress = metadata.clientAddress || body.clientAddress || 'غير محدد';
-    const rawNote = metadata.delivery_note || body.delivery_note || body.note || 'لا توجد ملاحظات';
+    const rawNote = metadata.note || body.note || null;
+    const rawDeliveryNote = metadata.delivery_note || body.delivery_note || '';
     const rawLang = metadata.lang || body.currentLang || body.lang || 'ar';
     const rawIsExternal = metadata.is_external !== undefined ? metadata.is_external : (body.is_external !== undefined ? body.is_external : false);
 
@@ -364,7 +367,8 @@ export default async (req, res) => {
       productSku: sanitizeString(rawSku),
       productVariant: sanitizeString(rawVariant),
       clientAddress: sanitizeString(rawAddress),
-      delivery_note: sanitizeString(rawNote),
+      note: sanitizeString(rawNote),
+      delivery_note: sanitizeString(rawDeliveryNote),
       is_external: Boolean(rawIsExternal),
       // -------------------------
 
