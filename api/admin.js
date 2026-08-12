@@ -53,6 +53,7 @@ async function writeLeadToSupabase(data, userEmail) {
             quantity: data.productVariant,
             address: data.clientAddress,
             delivery_note: data.delivery_note,
+            ...(data.note !== undefined && { note: data.note }),
             // ---------------------------------------------
 
             // --- [حماية إضافية] توحيد الحالات لقاعدة البيانات ---
@@ -77,8 +78,12 @@ async function writeLeadToSupabase(data, userEmail) {
 
         if (error) {
             console.error('DEBUG: Supabase Upsert Error:', error);
+            throw error;
         }
-    } catch (e) { console.error('DB Write Error (Lead):', e.message); }
+    } catch (e) { 
+        console.error('DB Write Error (Lead):', e.message); 
+        throw e;
+    }
 }
 
 async function writeSpendToSupabase(data, userEmail) {
@@ -935,6 +940,7 @@ async function handleGet(req, res, user) {
                 productSku: l.product_sku || '',
                 productVariant: l.quantity || '1',
                 clientAddress: l.address || '',
+                note: l.note || '',
                 delivery_note: l.delivery_note || '',
                 isExternal: !!l.is_external,
                 // -------------------------
@@ -1286,10 +1292,12 @@ async function handlePost(req, res, user) {
             utm_campaign: newItem.utm_campaign,
             utm_term: newItem.utm_term,
             utm_content: newItem.utm_content,
-            utm_id: newItem.utm_id // [NEW]
+            utm_id: newItem.utm_id,
+            clientAddress: newItem.clientAddress,
+            delivery_note: newItem.delivery_note,
+            note: newItem.note
         };
         await writeLeadToSupabase(syncedItem, user.email);
-        // ------------------------------------
 
         res.status(201).json({
             success: true,
@@ -1395,6 +1403,7 @@ async function handlePut(req, res, user) {
             productVariant: rowToUpdate.get('Quantity'),
             clientAddress: rowToUpdate.get('Address'),
             delivery_note: rowToUpdate.get('Delivery Note'),
+            note: updatedItem.note,
             // -------------------------
 
             status: rowToUpdate.get('Payment Status'),
@@ -1412,7 +1421,6 @@ async function handlePut(req, res, user) {
             utm_id: rowToUpdate.get('utm_id') // [NEW]
         };
         await writeLeadToSupabase(syncedItem, user.email);
-        // ------------------------------------
 
         res.status(200).json({
             success: true,
