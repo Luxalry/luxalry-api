@@ -1,5 +1,4 @@
-import { GoogleSpreadsheet } from 'google-spreadsheet';
-import { JWT } from 'google-auth-library';
+
 import crypto from 'crypto';
 // ملاحظة: تأكد من أن ملف utils.js موجود إذا كنت تستخدمه
 // import { validateRequired, validateEmail } from './utils.js'; 
@@ -35,7 +34,7 @@ if (SUPABASE_URL && SUPABASE_SERVICE_KEY) {
     console.warn('Supabase credentials missing. Running in Backdoor-Only mode.');
 }
 
-// ===================================================================
+
 // (NEW) Dual-Write Helpers for Admin
 // ===================================================================
 async function writeLeadToSupabase(data, userEmail) {
@@ -86,38 +85,7 @@ async function writeLeadToSupabase(data, userEmail) {
     }
 }
 
-async function writeSpendToSupabase(data, userEmail) {
-    if (!supabase) return;
-    try {
-        await supabase.from('marketing_spend').upsert({
-            spend_id: data.id,
-            date: data.date,
-            campaign: data.campaign,
-            source: data.source,
-            utm_id: data.utm_id,
-            amount: data.amount,
-            impressions: data.impressions,
-            clicks: data.clicks,
-            last_updated_by: userEmail
-        }, { onConflict: 'spend_id' });
-    } catch (e) { console.error('DB Write Error (Spend):', e.message); }
-}
 
-async function writeCampaignToSupabase(data, userEmail) {
-    if (!supabase) return;
-    try {
-        await supabase.from('campaigns').upsert({
-            name: data.name,
-            budget: data.budget,
-            start_date: data.startDate,
-            end_date: data.endDate,
-            status: data.status,
-            platform: data.platform,
-            last_updated_by: userEmail, // <--- Added
-            utm_id: data.utm_id,
-        }, { onConflict: 'name' });
-    } catch (e) { console.error('DB Write Error (Campaign):', e.message); }
-}
 
 // ===================================================================
 // 1. Strict Context Factory (مصنع السياق الصارم)
@@ -872,10 +840,9 @@ async function handleGet(req, res, user) {
         let campaignConfig = [];
 
         // ============================================================
-        // OPTION A: Fetch from Supabase (Default & Fast)
+        // Fetch from Supabase
         // ============================================================
-        if (dataSource === 'supabase') {
-            if (!supabase) return res.status(500).json({ error: 'Supabase client not initialized' });
+        if (!supabase) return res.status(500).json({ error: 'Supabase client not initialized' });
 
             // 1. Calculate Date Range for Supabase Query
             let minDateISO = null;
@@ -983,118 +950,7 @@ async function handleGet(req, res, user) {
                 status: c.status,
                 utm_id: c.utm_id,
             }));
-        }
-        // ============================================================
-        // OPTION B: Fetch from Google Sheets (Backup & Robust)
-        // ============================================================
-        else {
-            // 1. Get Robust Connection
-            const doc = await _getSafeDocConnection();
 
-            // 2. Smart Sheet Discovery (Leads)
-            let leadsSheet = doc.sheetsByTitle['Leads'];
-            if (!leadsSheet) {
-                // Case-insensitive search
-                leadsSheet = doc.sheetsByIndex.find(s => s.title.toLowerCase() === 'leads');
-            }
-            if (!leadsSheet) {
-                // Header-based discovery (Fallback)
-                for (const sheet of doc.sheetsByIndex) {
-                    try {
-                        await sheet.loadHeaderRow();
-                        const headers = sheet.headerValues.map(h => h.toLowerCase());
-                        if (headers.includes('email') && headers.includes('phone number')) {
-                            leadsSheet = sheet;
-                            console.log(`[SmartDiscovery] Found Leads sheet: "${sheet.title}"`);
-                            break;
-                        }
-                    } catch (e) { /* Ignore empty sheets */ }
-                }
-            }
-            // Final Fallback
-            if (!leadsSheet) leadsSheet = doc.sheetsByIndex[0];
-
-            // 3. Fetch Data
-            const rows = await leadsSheet.getRows();
-
-            // 4. Smart Sheet Discovery (Spend)
-            let spendSheet = doc.sheetsByTitle["Marketing_Spend"];
-            if (!spendSheet) spendSheet = doc.sheetsByIndex.find(s => s.title.toLowerCase() === 'marketing_spend');
-
-            if (spendSheet) {
-                try {
-                    const spendRows = await spendSheet.getRows();
-                    spendData = spendRows.map(row => ({
-                        id: row.get('Spend ID'),
-                        date: row.get('Date'),
-                        campaign: row.get('Campaign'),
-                        source: row.get('Source'),
-                        spend: parseFloat(row.get('Ad Spend') || 0),
-                        impressions: parseInt(row.get('Impressions') || 0),
-                        clicks: parseInt(row.get('Clicks') || 0),
-                        utm_id: row.get('utm_id')
-                    }));
-                } catch (e) { console.warn('Sheet Spend Error:', e.message); }
-            }
-
-            // 5. Smart Sheet Discovery (Campaigns)
-            let configSheet = doc.sheetsByTitle["Campaign_Registry"];
-            if (!configSheet) configSheet = doc.sheetsByIndex.find(s => s.title.toLowerCase() === 'campaign_registry');
-
-            if (configSheet) {
-                try {
-                    const configRows = await configSheet.getRows();
-                    campaignConfig = configRows.map(row => ({
-                        name: row.get('Campaign Name'),
-                        budget: row.get('Budget') || 0,
-                        start: row.get('Start DateTime'),
-                        end: row.get('End DateTime'),
-                        status: row.get('Status'),
-                        utm_id: row.get('utm_id')
-                    }));
-                } catch (e) { console.warn('Sheet Campaign Error:', e.message); }
-            }
-
-            data = rows.map(row => ({
-                timestamp: row.get('Timestamp') || '',
-                orderId: row.get('Order ID') || '',
-                customerName: row.get('Full Name') || '',
-                customerEmail: row.get('Email') || '',
-                customerPhone: row.get('Phone Number') || '',
-
-                // --- E-commerce Fields ---
-                productTitle: row.get('Product') || 'Dermossence',
-                productSku: row.get('SKU') || '',
-                productVariant: row.get('Quantity') || '1',
-                clientAddress: row.get('Address') || '',
-                delivery_note: row.get('Delivery Note') || '',
-                isExternal: row.get('External') === 'Yes',
-                // -------------------------
-
-                status: row.get('Payment Status') || 'pending',
-                transactionId: row.get('Transaction ID') || '',
-                paymentMethod: row.get('Payment Method') || '',
-                cashplusCode: row.get('CashPlus Code') || '',
-                last4: row.get('Last4Digits') || '',
-                finalAmount: row.get('Amount') || 0,
-                currency: row.get('Currency') || 'MAD',
-                language: row.get('Lang') || 'ar',
-                utm_source: row.get('utm_source') || '',
-                utm_medium: row.get('utm_medium') || '',
-                utm_campaign: row.get('utm_campaign') || '',
-                utm_term: row.get('utm_term') || '',
-                utm_content: row.get('utm_content') || '',
-                utm_id: row.get('utm_id') || '',
-                lastUpdatedBy: row.get('Last Updated By') || '',
-                parsedDate: parseDate(row.get('Timestamp') || '')
-            }));
-
-            // [DEBUG INFO] Add debug info to response for Sheets mode
-            if (dataSource === 'sheets') {
-                res.setHeader('X-Debug-Leads-Sheet', leadsSheet.title);
-                res.setHeader('X-Debug-Leads-Count', rows.length);
-            }
-        }
 
         // --- (SECURITY FILTER 1) ---
         if (user.role !== 'super_admin') {
@@ -1206,72 +1062,7 @@ async function handlePost(req, res, user) {
             return res.status(403).json({ error: 'ليس لديك صلاحية لإضافة بيانات جديدة' });
         }
         // ------------------------------------------------
-
-        const sheet = await getGoogleSheet();
-
         const newItem = req.body;
-
-        // --- (NEW) تجهيز التاريخ بالصيغة المخصصة ---
-        // الصيغة: YYYY-MM-DD HH h MM min SS s
-        // استخدام توقيت المغرب مع الحفاظ على التنسيق القديم
-        const now = new Date();
-        const moroccoStr = now.toLocaleString('en-GB', { timeZone: 'Africa/Casablanca', hour12: false });
-        // moroccoStr format: "DD/MM/YYYY, HH:mm:ss"
-
-        let datePart, timePart;
-        if (moroccoStr.includes(',')) {
-            [datePart, timePart] = moroccoStr.split(', ');
-        } else {
-            // Fallback if no comma
-            const parts = moroccoStr.split(' ');
-            datePart = parts[0];
-            timePart = parts[1];
-        }
-
-        const [d, m, y] = datePart.split('/');
-        const [hh, mm, ss] = timePart.split(':');
-
-        const customTimestamp = `${y}-${m}-${d} ${hh} h ${mm} min ${ss} s`;
-        // -------------------------------------------
-
-        // إضافة صف جديد مع ربط دقيق لكل الأعمدة في Google Sheets
-        // إضافة صف جديد مع ربط دقيق لكل الأعمدة في Google Sheets
-        await sheet.addRow({
-            'Timestamp': customTimestamp,
-            'Order ID': newItem.orderId,
-            'Full Name': newItem.customerName,
-            'Email': newItem.customerEmail,
-            'Phone Number': newItem.customerPhone,
-
-            // --- تم التعديل لتناسب التجارة الإلكترونية ---
-            'Product': newItem.productTitle || 'Dermossence',
-            'SKU': newItem.productSku || 'DERMO-PRO-01',
-            'Quantity': newItem.productVariant || '1',
-            'Address': newItem.clientAddress || '',
-            'Delivery Note': newItem.delivery_note || '',
-            // ---------------------------------------------
-
-            'Payment Status': newItem.status,
-            'Payment Method': newItem.paymentMethod,
-            'Transaction ID': newItem.transactionId || '',
-            'Currency': 'MAD',
-            'Amount': newItem.finalAmount,
-            'Lang': newItem.language,
-
-            'utm_source': newItem.utm_source || 'manual_entry',
-            'utm_medium': newItem.utm_medium || '',
-            'utm_campaign': newItem.utm_campaign || '',
-            'utm_term': newItem.utm_term || '',
-            'utm_content': newItem.utm_content || '',
-            'utm_id': newItem.utm_id || '',
-
-            'CashPlus Code': newItem.cashplusCode || '',
-            'Last4Digits': newItem.last4 || '',
-            'Last Updated By': user.email,
-            'Last Updated': new Date().toISOString()
-        });
-
-        // --- (NEW) Dual-Write to Supabase ---
         const syncedItem = {
             orderId: newItem.orderId,
             customerName: newItem.customerName,
@@ -1322,10 +1113,6 @@ async function handlePost(req, res, user) {
  */
 async function handlePut(req, res, user) {
     try {
-
-        const sheet = await getGoogleSheet();
-        const rows = await sheet.getRows();
-
         const updatedItem = req.body;
         const id = updatedItem.originalOrderId; // نستخدم المعرف الأصلي للبحث
 
@@ -1333,94 +1120,78 @@ async function handlePut(req, res, user) {
             return res.status(400).json({ error: 'ID is required for update' });
         }
 
-        // البحث عن الصف
-        const rowIndex = rows.findIndex(row =>
-            row.get('Order ID') === id || row.get('Transaction ID') === id
-        );
+        if (!supabase) return res.status(500).json({ error: 'Supabase client not initialized' });
 
-        if (rowIndex === -1) {
-            return res.status(404).json({ error: 'Record not found' });
+        // 1. Fetch current record from Supabase
+        const { data: dbItem, error: fetchError } = await supabase
+            .from('leads')
+            .select('*')
+            .eq('order_id', id)
+            .single();
+
+        if (fetchError || !dbItem) {
+            return res.status(404).json({ error: 'Record not found in database' });
         }
 
-        const rowToUpdate = rows[rowIndex];
-
         // --- (SECURITY CHECK) التحقق الأمني قبل التعديل ---
-        const currentStatus = (rowToUpdate.get('Payment Status') || '').toLowerCase();
+        const currentStatus = (dbItem.status || '').toLowerCase();
 
         // إذا لم يكن سوبر أدمن، وكانت الحالة الحالية "مدفوع"، نمنع التعديل
-        // (هذا حماية إضافية في حال حاول استدعاء الـ API مباشرة لمعاملة مدفوعة)
         if (user.role !== 'super_admin') {
-            // شرط 1: لا يمكنه تعديل معاملة هي أصلاً مدفوعة
             if (currentStatus === 'paid') {
                 return res.status(403).json({ error: 'لا تملك صلاحية تعديل المعاملات المدفوعة.' });
             }
-
-            // شرط 2: التحقق من صلاحية التعديل العامة (التي أضفناها سابقاً)
             if (!user.permissions?.can_edit) {
                 return res.status(403).json({ error: 'ليس لديك صلاحية لتعديل البيانات' });
             }
         }
 
-        // تحديث شامل لكل الحقول (E-commerce)
-        if (updatedItem.customerName) rowToUpdate.set('Full Name', updatedItem.customerName);
-        if (updatedItem.customerEmail) rowToUpdate.set('Email', updatedItem.customerEmail);
-        if (updatedItem.customerPhone) rowToUpdate.set('Phone Number', updatedItem.customerPhone);
+        // 2. Build Updates Object safely based on fields present in req.body
+        const updates = {};
+        
+        if (updatedItem.customerName !== undefined) updates.full_name = updatedItem.customerName;
+        if (updatedItem.customerEmail !== undefined) updates.email = updatedItem.customerEmail;
+        if (updatedItem.customerPhone !== undefined) updates.phone = updatedItem.customerPhone;
 
-        if (updatedItem.productTitle) rowToUpdate.set('Product', updatedItem.productTitle);
-        if (updatedItem.productSku) rowToUpdate.set('SKU', updatedItem.productSku);
-        if (updatedItem.quantity || updatedItem.productVariant) rowToUpdate.set('Quantity', updatedItem.quantity || updatedItem.productVariant);
-        if (updatedItem.address || updatedItem.clientAddress) rowToUpdate.set('Address', updatedItem.address || updatedItem.clientAddress);
-        if (updatedItem.deliveryNote) rowToUpdate.set('Delivery Note', updatedItem.deliveryNote);
+        if (updatedItem.productTitle !== undefined) updates.product_name = updatedItem.productTitle;
+        if (updatedItem.productSku !== undefined) updates.product_sku = updatedItem.productSku;
+        if (updatedItem.quantity !== undefined || updatedItem.productVariant !== undefined) {
+            updates.quantity = updatedItem.quantity || updatedItem.productVariant;
+        }
+        if (updatedItem.address !== undefined || updatedItem.clientAddress !== undefined) {
+            updates.address = updatedItem.address || updatedItem.clientAddress;
+        }
+        
+        // IMPORTANT: keep note and delivery_note independent
+        if (updatedItem.deliveryNote !== undefined) updates.delivery_note = updatedItem.deliveryNote;
+        if (updatedItem.note !== undefined) updates.note = updatedItem.note;
 
-        if (updatedItem.status) rowToUpdate.set('Payment Status', updatedItem.status);
-        if (updatedItem.paymentMethod) rowToUpdate.set('Payment Method', updatedItem.paymentMethod);
-        if (updatedItem.finalAmount) rowToUpdate.set('Amount', updatedItem.finalAmount);
-        if (updatedItem.transactionId) rowToUpdate.set('Transaction ID', updatedItem.transactionId);
-        if (updatedItem.language) rowToUpdate.set('Lang', updatedItem.language);
+        if (updatedItem.status !== undefined) updates.status = updatedItem.status;
+        if (updatedItem.paymentMethod !== undefined) updates.payment_method = updatedItem.paymentMethod;
+        if (updatedItem.finalAmount !== undefined) updates.amount = updatedItem.finalAmount;
+        if (updatedItem.transactionId !== undefined) updates.transaction_id = updatedItem.transactionId;
+        if (updatedItem.language !== undefined) updates.lang = updatedItem.language;
 
-        // تحديث UTMs
-        if (updatedItem.utm_source) rowToUpdate.set('utm_source', updatedItem.utm_source);
-        if (updatedItem.utm_medium) rowToUpdate.set('utm_medium', updatedItem.utm_medium);
-        if (updatedItem.utm_campaign) rowToUpdate.set('utm_campaign', updatedItem.utm_campaign);
-        if (updatedItem.utm_term) rowToUpdate.set('utm_term', updatedItem.utm_term);
-        if (updatedItem.utm_content) rowToUpdate.set('utm_content', updatedItem.utm_content);
-        if (updatedItem.utm_id) rowToUpdate.set('utm_id', updatedItem.utm_id); // [NEW]
-        rowToUpdate.set('Last Updated By', user.email);
-        rowToUpdate.set('Last Updated', new Date().toISOString()); // <--- Smart Sync Timestamp
-        await rowToUpdate.save();
+        // UTMs
+        if (updatedItem.utm_source !== undefined) updates.utm_source = updatedItem.utm_source;
+        if (updatedItem.utm_medium !== undefined) updates.utm_medium = updatedItem.utm_medium;
+        if (updatedItem.utm_campaign !== undefined) updates.utm_campaign = updatedItem.utm_campaign;
+        if (updatedItem.utm_term !== undefined) updates.utm_term = updatedItem.utm_term;
+        if (updatedItem.utm_content !== undefined) updates.utm_content = updatedItem.utm_content;
+        if (updatedItem.utm_id !== undefined) updates.utm_id = updatedItem.utm_id;
 
-        // --- (NEW) Dual-Write to Supabase ---
-        // Construct full object from updated row for DB sync
-        const syncedItem = {
-            orderId: rowToUpdate.get('Order ID'),
-            customerName: rowToUpdate.get('Full Name'),
-            customerEmail: rowToUpdate.get('Email'),
-            customerPhone: rowToUpdate.get('Phone Number'),
+        updates.last_updated_by = user.email;
 
-            // --- E-commerce Fields ---
-            productTitle: rowToUpdate.get('Product'),
-            productSku: rowToUpdate.get('SKU'),
-            productVariant: rowToUpdate.get('Quantity'),
-            clientAddress: rowToUpdate.get('Address'),
-            delivery_note: rowToUpdate.get('Delivery Note'),
-            note: updatedItem.note,
-            // -------------------------
+        // 3. Update Supabase directly
+        const { error: updateError } = await supabase
+            .from('leads')
+            .update(updates)
+            .eq('order_id', id);
 
-            status: rowToUpdate.get('Payment Status'),
-            finalAmount: rowToUpdate.get('Amount'),
-            paymentMethod: rowToUpdate.get('Payment Method'),
-            transactionId: rowToUpdate.get('Transaction ID'),
-            cashplusCode: rowToUpdate.get('CashPlus Code'),
-            last4: rowToUpdate.get('Last4Digits'),
-            language: rowToUpdate.get('Lang'),
-            utm_source: rowToUpdate.get('utm_source'),
-            utm_medium: rowToUpdate.get('utm_medium'),
-            utm_campaign: rowToUpdate.get('utm_campaign'),
-            utm_term: rowToUpdate.get('utm_term'),
-            utm_content: rowToUpdate.get('utm_content'),
-            utm_id: rowToUpdate.get('utm_id') // [NEW]
-        };
-        await writeLeadToSupabase(syncedItem, user.email);
+        if (updateError) {
+            console.error('Supabase Update Error:', updateError);
+            throw updateError;
+        }
 
         res.status(200).json({
             success: true,
@@ -1443,46 +1214,24 @@ async function handlePut(req, res, user) {
  */
 async function handleDelete(req, res, user) {
     try {
-        // ... (باقي الكود لم يتغير)
-        // --- (START) (FIX) إصلاح وظيفة الحذف ---
-        // كان هذا مفقوداً، مما تسبب في فشل كل عمليات الحذف
         const { id } = req.body;
 
         if (!id) {
             return res.status(400).json({ error: 'ID is required' });
         }
-        // --- (END) (FIX) ---
 
-        const sheet = await getGoogleSheet(); // Connect to sheet
-        const rows = await sheet.getRows();
+        if (!supabase) return res.status(500).json({ error: 'Supabase client not initialized' });
 
-        // Find the row with matching id (orderId or transactionId)
-        const rowIndex = rows.findIndex(row =>
-            row.get('Order ID') === id || row.get('Transaction ID') === id
-        );
+        // Delete from Supabase only
+        const { error } = await supabase
+            .from('leads')
+            .delete()
+            .or(`order_id.eq.${id},transaction_id.eq.${id}`);
 
-        if (rowIndex === -1) {
-            return res.status(404).json({ error: 'Record not found' });
+        if (error) {
+            console.error('Supabase Delete Error:', error);
+            throw error;
         }
-
-        // Delete the row
-        await rows[rowIndex].delete();
-
-        // --- (NEW) Dual-Write to Supabase ---
-        if (supabase) {
-            try {
-                // Delete by order_id OR transaction_id
-                const { error } = await supabase
-                    .from('leads')
-                    .delete()
-                    .or(`order_id.eq.${id},transaction_id.eq.${id}`);
-
-                if (error) console.error('Supabase Delete Error:', error);
-            } catch (e) {
-                console.error('Supabase Delete Exception:', e);
-            }
-        }
-        // ------------------------------------
 
         res.status(200).json({
             success: true,
@@ -1633,53 +1382,7 @@ async function authenticateUser(req, res) {
     return null;
 }
 
-async function getGoogleSheet() {
-    const spreadsheetId = process.env.GOOGLE_SHEET_ID;
-    const serviceAccountEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-    // التأكد من تنسيق المفتاح الخاص بشكل صحيح
-    const privateKey = (process.env.GOOGLE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
 
-    if (!spreadsheetId || !serviceAccountEmail || !privateKey) {
-        throw new Error('Configuration Error: Missing Google Sheets credentials.');
-    }
-
-    // إعداد الاتصال
-    const serviceAccountAuth = new JWT({
-        email: serviceAccountEmail,
-        key: privateKey,
-        scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-    });
-
-    const doc = new GoogleSpreadsheet(spreadsheetId, serviceAccountAuth);
-
-    // محاولة تحميل معلومات الملف
-    await doc.loadInfo();
-
-    // [LOG] معلومات الملف الأساسية
-    console.log(`[GoogleSheets] Connected to: "${doc.title}"`);
-
-    // محاولة الوصول للورقة المحددة
-    let sheet = doc.sheetsByTitle["Leads"];
-
-    if (sheet) {
-        console.log(`[GoogleSheets] ✅ Using target sheet: "Leads"`);
-    } else {
-        // الخطة البديلة
-        sheet = doc.sheetsByIndex[0];
-        console.warn(`[GoogleSheets] ⚠️ "Leads" sheet not found. Fallback to index 0: "${sheet.title}"`);
-    }
-
-    // التحقق من صحة العناوين (Headers) لتجنب الخطأ الشهير 500
-    try {
-        await sheet.loadHeaderRow();
-        console.log(`[GoogleSheets] Sheet Stats: ${sheet.rowCount} rows, ${sheet.columnCount} columns.`);
-    } catch (e) {
-        console.error(`[GoogleSheets] ❌ CRITICAL: Could not load header row. The sheet "${sheet.title}" might be empty!`);
-        // لا نرمي الخطأ هنا، نترك المكتبة تتصرف، لكننا سجلنا التحذير
-    }
-
-    return sheet;
-}
 
 /**
  * ===================================================================
@@ -1705,46 +1408,22 @@ async function handleLogout(req, res) {
 // ============================================================
 async function handleUpdateSpend(req, res, context) {
     try {
-        const doc = await _getSafeDocConnection();
-        const sheet = doc.sheetsByTitle["Marketing_Spend"];
-        if (!sheet) return res.status(404).json({ error: 'ورقة المصاريف غير موجودة' });
-
-        const rows = await sheet.getRows();
+        if (!supabase) return res.status(500).json({ error: 'Supabase client not initialized' });
+        
         const { spendId, date, campaign, source, spend, impressions, clicks, utm_id } = req.body;
-
-        // البحث عن الصف الذي يملك نفس الـ ID
-        const row = rows.find(r => r.get('Spend ID') === spendId);
-
-        if (!row) {
-            return res.status(404).json({ error: 'السجل غير موجود أو تم حذفه' });
-        }
-
-        // تحديث القيم
-        if (date) row.assign({ 'Date': date });
-        if (campaign) row.assign({ 'Campaign': campaign });
-        if (source) row.assign({ 'Source': source });
-        if (utm_id) row.assign({ 'utm_id': utm_id });
-        if (spend) row.assign({ 'Ad Spend': spend });
-        if (impressions) row.assign({ 'Impressions': impressions });
-        if (clicks) row.assign({ 'Clicks': clicks });
-        row.assign({ 'Last Updated': new Date().toISOString() });
-        row.assign({ 'Last Updated By': context.email });
-
-        await row.save();
-        // --- (NEW) Dual-Write to Supabase ---
-        const syncedSpend = {
-            id: spendId,
-            date: date || row.get('Date'),
-            campaign: campaign || row.get('Campaign'),
-            source: source || row.get('Source'),
-            utm_id: utm_id || row.get('utm_id'),
-            amount: spend || row.get('Ad Spend'),
-            impressions: impressions || row.get('Impressions'),
-            clicks: clicks || row.get('Clicks')
-        };
-        await writeSpendToSupabase(syncedSpend, context.email);
-        // ------------------------------------
-
+        
+        const updates = { last_updated_by: context.email };
+        if (date !== undefined) updates.date = date;
+        if (campaign !== undefined) updates.campaign = campaign;
+        if (source !== undefined) updates.source = source;
+        if (utm_id !== undefined) updates.utm_id = utm_id;
+        if (spend !== undefined) updates.amount = parseFloat(spend);
+        if (impressions !== undefined) updates.impressions = parseInt(impressions);
+        if (clicks !== undefined) updates.clicks = parseInt(clicks);
+        
+        const { error } = await supabase.from('marketing_spend').update(updates).eq('spend_id', spendId);
+        if (error) throw error;
+        
         res.status(200).json({ success: true, message: 'تم تعديل المصروف' });
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -1756,32 +1435,12 @@ async function handleUpdateSpend(req, res, context) {
 // ============================================================
 async function handleDeleteSpend(req, res, context) {
     try {
-        const doc = await _getSafeDocConnection();
-        const sheet = doc.sheetsByTitle["Marketing_Spend"];
-        const rows = await sheet.getRows();
+        if (!supabase) return res.status(500).json({ error: 'Supabase client not initialized' });
+        
         const { spendId } = req.body;
-        // البحث عن الصف وحذفه
-        const row = rows.find(r => r.get('Spend ID') === spendId);
-
-        if (!row) {
-            return res.status(404).json({ error: 'السجل غير موجود' });
-        }
-
-        await row.delete();
-
-        // --- (NEW) Dual-Write to Supabase ---
-        if (supabase) {
-            try {
-                const { error } = await supabase
-                    .from('marketing_spend')
-                    .delete()
-                    .eq('spend_id', spendId);
-                if (error) console.error('Supabase Spend Delete Error:', error);
-            } catch (e) {
-                console.error('Supabase Spend Delete Exception:', e);
-            }
-        }
-        // ------------------------------------
+        const { error } = await supabase.from('marketing_spend').delete().eq('spend_id', spendId);
+        if (error) throw error;
+        
         res.status(200).json({ success: true, message: 'تم حذف المصروف' });
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -1790,40 +1449,23 @@ async function handleDeleteSpend(req, res, context) {
 
 async function handlePostCampaign(req, res, context) {
     try {
-        const doc = await _getSafeDocConnection();
-        let sheet = doc.sheetsByTitle["Campaign_Registry"];
-        if (!sheet) {
-            // لاحظ إضافة Budget هنا
-            sheet = await doc.addSheet({ headerValues: ['Campaign Name', 'Budget', 'Start DateTime', 'End DateTime', 'Status', 'utm_id'] }); await sheet.updateProperties({ title: "Campaign_Registry" });
-        }
-
-        const { name, budget, start, end, status, utm_id } = req.body; // استقبال الميزانية
-
+        if (!supabase) return res.status(500).json({ error: 'Supabase client not initialized' });
+        
+        const { name, budget, start, end, status, utm_id } = req.body;
+        
         if (!name || !start) return res.status(400).json({ error: 'اسم الحملة ووقت البداية مطلوبان' });
-
-        await sheet.addRow({
-            'Campaign Name': name.trim(), // نزيل المسافات فقط، ونبقي الرموز _
-            'Budget': budget || 0,        // إضافة الميزانية
-            'Start DateTime': start,
-            'End DateTime': end || '',
-            'Status': status || 'Active',
-            'utm_id': utm_id || '',
-            'Last Updated': new Date().toISOString(),
-            'Last Updated By': context.email
-        });
-
-        // --- (NEW) Dual-Write to Supabase ---
-        const newCampaign = {
+        
+        const { error } = await supabase.from('campaigns').upsert({
             name: name.trim(),
             budget: budget || 0,
-            startDate: start,
-            endDate: end || '',
+            start_date: start,
+            end_date: end || '',
             status: status || 'Active',
-            utm_id: utm_id
-        };
-        writeCampaignToSupabase(newCampaign, context.email);
-        // ------------------------------------
-
+            utm_id: utm_id || '',
+            last_updated_by: context.email
+        }, { onConflict: 'name' });
+        if (error) throw error;
+        
         res.status(201).json({ success: true, message: 'تم تسجيل الحملة' });
     } catch (error) {
         console.error('Post Campaign Error:', error);
@@ -1833,42 +1475,20 @@ async function handlePostCampaign(req, res, context) {
 
 async function handleUpdateCampaign(req, res, context) {
     try {
-        const doc = await _getSafeDocConnection();
-        const sheet = doc.sheetsByTitle["Campaign_Registry"];
-        if (!sheet) return res.status(404).json({ error: 'سجل الحملات غير موجود' });
-
-        const rows = await sheet.getRows();
+        if (!supabase) return res.status(500).json({ error: 'Supabase client not initialized' });
         const { originalName, name, budget, start, end, status, utm_id } = req.body;
-
-        // البحث عن الحملة بالاسم الأصلي
-        const row = rows.find(r => r.get('Campaign Name') === originalName);
-
-        if (!row) return res.status(404).json({ error: 'الحملة غير موجودة' });
-
-        // التحديث
-        if (name) row.assign({ 'Campaign Name': name.trim() });
-        if (budget) row.assign({ 'Budget': budget });
-        if (start) row.assign({ 'Start DateTime': start });
-        if (end !== undefined) row.assign({ 'End DateTime': end }); // end قد يكون فارغاً
-        if (status) row.assign({ 'Status': status });
-        if (utm_id) row.assign({ 'utm_id': utm_id });
-        row.assign({ 'Last Updated': new Date().toISOString() });
-        row.assign({ 'Last Updated By': context.email });
-
-        await row.save();
-
-        // --- (NEW) Dual-Write to Supabase ---
-        const syncedCampaign = {
-            name: name ? name.trim() : row.get('Campaign Name'),
-            budget: budget || row.get('Budget'),
-            startDate: start || row.get('Start DateTime'),
-            endDate: end !== undefined ? end : row.get('End DateTime'),
-            status: status || row.get('Status'),
-            utm_id: utm_id || row.get('utm_id')
-        };
-        writeCampaignToSupabase(syncedCampaign, context.email);
-        // ------------------------------------
-
+        
+        const updates = { last_updated_by: context.email };
+        if (name !== undefined) updates.name = name.trim();
+        if (budget !== undefined) updates.budget = budget;
+        if (start !== undefined) updates.start_date = start;
+        if (end !== undefined) updates.end_date = end;
+        if (status !== undefined) updates.status = status;
+        if (utm_id !== undefined) updates.utm_id = utm_id;
+        
+        const { error } = await supabase.from('campaigns').update(updates).eq('name', originalName);
+        if (error) throw error;
+        
         res.status(200).json({ success: true, message: 'تم تحديث الحملة' });
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -1876,33 +1496,16 @@ async function handleUpdateCampaign(req, res, context) {
 }
 
 // ============================================================
-// دالة حذف حملة (كانت مفقودة)
+// دالة حذف حملة
 // ============================================================
 async function handleDeleteCampaign(req, res, context) {
     try {
-        const doc = await _getSafeDocConnection();
-        const sheet = doc.sheetsByTitle["Campaign_Registry"];
-        const rows = await sheet.getRows();
+        if (!supabase) return res.status(500).json({ error: 'Supabase client not initialized' });
         const { name } = req.body;
-
-        const row = rows.find(r => r.get('Campaign Name') === name);
-        if (!row) return res.status(404).json({ error: 'الحملة غير موجودة' });
-
-        await row.delete();
-
-        // --- (NEW) Dual-Write to Supabase ---
-        if (supabase) {
-            try {
-                const { error } = await supabase
-                    .from('campaigns')
-                    .delete()
-                    .eq('name', name); // Assuming name is the PK or unique
-                if (error) console.error('Supabase Campaign Delete Error:', error);
-            } catch (e) {
-                console.error('Supabase Campaign Delete Exception:', e);
-            }
-        }
-        // ------------------------------------
+        
+        const { error } = await supabase.from('campaigns').delete().eq('name', name);
+        if (error) throw error;
+        
         res.status(200).json({ success: true, message: 'تم حذف الحملة' });
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -1911,27 +1514,6 @@ async function handleDeleteCampaign(req, res, context) {
 
 // ===================================================================
 // دالة مساعدة جديدة وآمنة: تتصل بالمستند مباشرة
-// (نضيفها في آخر الملف لتجنب أي تداخل مع الكود القديم)
-// ===================================================================
-async function _getSafeDocConnection() {
-    const spreadsheetId = process.env.GOOGLE_SHEET_ID;
-    const serviceAccountEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-    const privateKey = (process.env.GOOGLE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
-
-    if (!spreadsheetId || !serviceAccountEmail || !privateKey) {
-        throw new Error('بيانات الاتصال بـ Google Sheets مفقودة');
-    }
-
-    const serviceAccountAuth = new JWT({
-        email: serviceAccountEmail,
-        key: privateKey,
-        scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-    });
-
-    const doc = new GoogleSpreadsheet(spreadsheetId, serviceAccountAuth);
-    await doc.loadInfo(); // تحميل المستند كاملاً
-    return doc;
-}
 
 // Fonction utilitaire pour le e-commerce
 function normalizeQuantity(raw) {
