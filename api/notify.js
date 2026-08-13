@@ -102,14 +102,10 @@ const EMAIL_SENDER_ADDRESS = process.env.EMAIL_SENDER_ADDRESS;
 const EMAIL_SENDER_NAME = "Luxalry";
 
 // التحقق من المتغيرات البيئية
-if (!GOOGLE_SHEET_ID || !GOOGLE_SERVICE_ACCOUNT_EMAIL || !GOOGLE_PRIVATE_KEY ||
-  !TELEGRAM_BOT_TOKEN || TELEGRAM_CHAT_IDS.length === 0) {
+if (!TELEGRAM_BOT_TOKEN || TELEGRAM_CHAT_IDS.length === 0) {
   console.error('CRITICAL: Missing required environment variables for notify service');
 }
 
-
-// 2. تهيئة Google Sheet
-let doc;
 
 // ترجمة الرسائل (Telegram)
 const telegramTranslations = {
