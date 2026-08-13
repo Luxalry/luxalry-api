@@ -1,6 +1,5 @@
 import TelegramBot from 'node-telegram-bot-api';
-import { JWT } from 'google-auth-library';
-import { GoogleSpreadsheet } from 'google-spreadsheet';
+
 import { validateEmail, normalizePhone, sanitizeString, sanitizeTelegramHTML } from './utils.js';
 import crypto from 'crypto';
 import SibApiV3Sdk from 'sib-api-v3-sdk'; // [إضافة] مكتبة البريد
@@ -21,7 +20,7 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
 // --- [إضافة] دالة الكتابة في Supabase ---
 async function writeToSupabase(data) {
   try {
-    const { error } = await supabase.from('leads').upsert({
+    const { error } = await supabase.from('leads').insert({
       order_id: data.orderId,
       full_name: data.clientName,
       email: data.clientEmail,
@@ -36,6 +35,16 @@ async function writeToSupabase(data) {
       delivery_note: data.delivery_note,
       is_external: data.is_external,
       // -------------------------
+
+      // --- Export State Initialization ---
+      ...(data.is_external ? {
+        export_status: 'PENDING',
+        export_attempts: 0
+      } : {
+        export_status: null,
+        export_attempts: 0
+      }),
+      // -----------------------------------
 
       status: data.paymentStatus,
       amount: data.amount,
@@ -54,8 +63,16 @@ async function writeToSupabase(data) {
       created_at: new Date().toISOString(),
       last_updated: new Date().toISOString(),
       last_updated_by: 'System'
-    }, { onConflict: 'order_id' });
-    if (error) throw error;
+    });
+
+    if (error) {
+      if (error.code === '23505') { // Unique constraint violation (duplicate order_id)
+        console.log(`Order ${data.orderId} already exists. Treating as idempotent duplicate and preserving existing data.`);
+        return true; 
+      }
+      throw error;
+    }
+    
     console.log("Successfully saved to Supabase");
     return true;
   } catch (e) {
@@ -74,9 +91,6 @@ async function getRawBody(req) {
 }
 
 // 1. إعدادات الأمان
-const GOOGLE_SHEET_ID = process.env.GOOGLE_SHEET_ID;
-const GOOGLE_SERVICE_ACCOUNT_EMAIL = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-const GOOGLE_PRIVATE_KEY = process.env.GOOGLE_PRIVATE_KEY;
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 // [تحديث] دعم عدة مستلمين مفصولين بفاصلة
 const TELEGRAM_CHAT_IDS = (process.env.TELEGRAM_CHAT_ID || '').split(',').map(id => id.trim()).filter(Boolean);
@@ -149,21 +163,7 @@ const telegramTranslations = {
 // قوالب البريد الإلكتروني (نستخدم القوالب المشتركة الآن)
 /*const emailConfirmationTemplates = emailTemplates.payment_confirmation;*/
 
-// دالة مصادقة Google Sheets
-async function authGoogleSheets() {
-  try {
-    const serviceAccountAuth = new JWT({
-      email: GOOGLE_SERVICE_ACCOUNT_EMAIL,
-      key: GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
-      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-    });
 
-    doc = new GoogleSpreadsheet(GOOGLE_SHEET_ID, serviceAccountAuth);
-    await doc.loadInfo();
-  } catch (e) {
-    console.error("Google Sheets Auth Error:", e.message);
-  }
-}
 
 function verifyYouCanSignature(privateKey, payload, receivedSignature) {
   if (!privateKey || !receivedSignature) return false;
@@ -410,61 +410,7 @@ export default async (req, res) => {
 
     // --- الترجمة ---
     const t = telegramTranslations[normalizedData.lang] || telegramTranslations['fr'];
-
-    // --- الحفظ المزدوج (Dual Write: Google Sheets + Supabase) ---
-    const sheetPromise = (async () => {
-      try {
-        await authGoogleSheets();
-        if (doc) {
-          let sheet = doc.sheetsByTitle["Leads"];
-          if (!sheet) sheet = await doc.addSheet({ title: "Leads" });
-          // ... (Load headers logic if needed, skipped for brevity as sheet usually exists)
-          await sheet.addRow({
-            "Timestamp": normalizedData.timestamp,
-            "Order ID": normalizedData.orderId,
-            "Full Name": normalizedData.clientName,
-            "Email": normalizedData.clientEmail,
-            "Phone Number": normalizedData.clientPhone,
-
-            // --- E-Commerce Columns ---
-            "Product": normalizedData.productTitle,
-            "SKU": normalizedData.productSku,
-            "Quantity": normalizedData.productVariant,
-            "Address": normalizedData.clientAddress,
-            "Delivery Note": normalizedData.delivery_note,
-            "External": normalizedData.is_external ? 'Yes' : 'No',
-            // --------------------------
-
-            "Payment Method": normalizedData.paymentMethod,
-            "CashPlus Code": normalizedData.cashplusCode,
-            "Last4Digits": normalizedData.last4,
-            "Amount": normalizedData.amount,
-            "Currency": normalizedData.currency,
-            "Lang": normalizedData.lang,
-            "utm_source": normalizedData.utm_source,
-            "utm_medium": normalizedData.utm_medium,
-            "utm_campaign": normalizedData.utm_campaign,
-            "utm_term": normalizedData.utm_term,
-            "utm_content": normalizedData.utm_content,
-            "utm_id": normalizedData.utm_id,
-            "Payment Status": normalizedData.paymentStatus,
-            "Transaction ID": normalizedData.transactionId,
-            "Last Updated": new Date().toISOString(),
-            "Last Updated By": "System"
-          });
-          console.log("Successfully saved to Google Sheets");
-          return true;
-        }
-      } catch (e) {
-        console.error("Sheet Error:", e.message);
-        throw e;
-      }
-    })();
-
-    const dbPromise = writeToSupabase(normalizedData);
-
-    // ننتظر انتهاء العمليتين (لا نوقف التنفيذ إذا فشلت إحداهما)
-    await Promise.allSettled([sheetPromise, dbPromise]);
+    const dbSuccess = await writeToSupabase(normalizedData);
 
     // --- إرسال Telegram ---
     const message = `
