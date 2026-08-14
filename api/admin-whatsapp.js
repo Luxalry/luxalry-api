@@ -3,16 +3,37 @@ import { sendWhatsAppText } from './whatsapp.js';
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
-// Helper to extract authentication
-function getAuthCredentials(req) {
+// Helper to authenticate and authorize via Supabase JWT
+async function getAuthContext(req) {
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Basic ')) return null;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+
+  const token = authHeader.split(' ')[1];
+  
   try {
-    const base64 = authHeader.split(' ')[1];
-    const decoded = Buffer.from(base64, 'base64').toString('utf8');
-    const [username, password] = decoded.split(':');
-    return { username, password };
+    const userClient = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
+      global: { headers: { Authorization: `Bearer ${token}` } },
+      auth: { autoRefreshToken: false, persistSession: false }
+    });
+
+    const { data: { user }, error } = await userClient.auth.getUser();
+    if (error || !user) return null;
+
+    const { data: roleDataArray } = await supabase
+      .from('user_roles')
+      .select('role, can_edit, is_frozen')
+      .eq('user_id', user.id);
+      
+    const roleData = roleDataArray && roleDataArray.length > 0 ? roleDataArray[0] : null;
+
+    if (roleData?.is_frozen) return null;
+
+    return {
+      user,
+      can_edit: roleData?.role === 'super_admin' ? true : !!roleData?.can_edit
+    };
   } catch (e) {
+    console.error("Auth context error:", e.message);
     return null;
   }
 }
@@ -28,14 +49,16 @@ export default async (req, res) => {
   }
 
   try {
-    // 1. Authenticate Admin
-    const creds = getAuthCredentials(req);
-    if (
-      !creds ||
-      creds.username !== process.env.ADMIN_USERNAME ||
-      creds.password !== process.env.ADMIN_PASSWORD
-    ) {
+    // 1. Authenticate & Authorize Admin via Bearer JWT
+    const authCtx = await getAuthContext(req);
+    
+    if (!authCtx) {
       return res.status(401).json({ error: 'Unauthorized access' });
+    }
+    
+    // Enforce consistent authorization guard for ALL WhatsApp actions
+    if (!authCtx.can_edit) {
+      return res.status(403).json({ error: 'Insufficient permissions' });
     }
 
     const { action } = req.query;
