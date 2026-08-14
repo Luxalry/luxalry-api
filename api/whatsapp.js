@@ -101,3 +101,63 @@ export async function sendWhatsAppConfirmation(data) {
     return { success: false, status: 500, error: { message: error.message } };
   }
 }
+
+export async function sendWhatsAppText(phoneNumber, text) {
+  if (!WHATSAPP_TOKEN || !WHATSAPP_PHONE_ID) {
+    console.warn("Skipping WhatsApp text: Missing WHATSAPP_TOKEN or WHATSAPP_PHONE_ID.");
+    return { success: false, error: { message: "Missing WHATSAPP_TOKEN or WHATSAPP_PHONE_ID in environment" } };
+  }
+
+  try {
+    let phone = phoneNumber;
+    if (phone && phone.startsWith('+')) {
+      phone = phone.substring(1);
+    }
+
+    if (!phone || phone === 'Unknown') {
+      return { success: false, error: { message: "Invalid phone number" } };
+    }
+
+    if (!text || text.trim() === '') {
+      return { success: false, error: { message: "Message text cannot be empty" } };
+    }
+
+    const payload = {
+      messaging_product: "whatsapp",
+      to: phone,
+      type: "text",
+      text: {
+        body: text.trim()
+      }
+    };
+
+    const response = await fetch(`https://graph.facebook.com/v20.0/${WHATSAPP_PHONE_ID}/messages`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${WHATSAPP_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const result = await response.json();
+    if (!response.ok) {
+      console.error(`Meta API Error (Text): ${result.error?.message || JSON.stringify(result)}`);
+      return { success: false, status: response.status, error: result.error || result };
+    }
+    
+    // Meta returns an array of messages with IDs on success
+    const wamid = result?.messages?.[0]?.id;
+    if (!wamid) {
+      return { success: false, error: { message: "Meta returned success but no wamid was found" } };
+    }
+
+    const maskedPhone = phone.length >= 8 ? phone.substring(0, 4) + '***' + phone.slice(-2) : '***';
+    console.log(`WhatsApp text sent to ${maskedPhone}. wamid: ${wamid}`);
+    
+    return { success: true, meta: result, wamid };
+  } catch (error) {
+    console.error("WhatsApp Text Sending Error:", error.message);
+    return { success: false, status: 500, error: { message: error.message } };
+  }
+}
