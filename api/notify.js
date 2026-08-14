@@ -300,15 +300,105 @@ export default async (req, res) => {
 
     console.log("Incoming Payload:", JSON.stringify(body).substring(0, 500));
 
-    // --- META WHATSAPP NAMESPACE ISOLATION ---
+    // --- META WHATSAPP NAMESPACE ISOLATION & EVENT PROCESSING ---
     if (body?.object === 'whatsapp_business_account') {
+      try {
+        if (supabase) {
+          const entry = body.entry?.[0];
+          const changes = entry?.changes?.[0];
+          const value = changes?.value;
+          
+          if (value?.messages && value.messages.length > 0) {
+            // INBOUND MESSAGE
+            const contact = value.contacts?.[0];
+            const message = value.messages[0];
+            
+            let phone = contact?.wa_id || message.from;
+            if (phone && phone.startsWith('+')) phone = phone.substring(1);
+            const customerName = contact?.profile?.name || null;
+            const wamid = message.id;
+            const type = message.type;
+            
+            let textBody = null;
+            if (type === 'text') {
+              textBody = message.text?.body;
+            } else {
+              textBody = `[Unsupported message type: ${type}]`;
+            }
+            
+            if (phone && wamid) {
+              const timestamp = message.timestamp ? new Date(message.timestamp * 1000).toISOString() : new Date().toISOString();
+              
+              // Find or create conversation
+              const { data: existingConv } = await supabase.from('whatsapp_conversations').select('id').eq('phone_number', phone).single();
+              
+              let convId;
+              if (existingConv) {
+                convId = existingConv.id;
+                await supabase.from('whatsapp_conversations').update({
+                  last_inbound_timestamp: timestamp,
+                  updated_at: new Date().toISOString(),
+                  ...(customerName ? { customer_name: customerName } : {})
+                }).eq('id', convId);
+              } else {
+                const { data: newConv } = await supabase.from('whatsapp_conversations').insert({
+                  phone_number: phone,
+                  customer_name: customerName,
+                  last_inbound_timestamp: timestamp,
+                  updated_at: new Date().toISOString()
+                }).select().single();
+                convId = newConv?.id;
+              }
+              
+              if (convId) {
+                // Insert message (ignoring duplicate wamid errors natively handled by Postgres UNIQUE constraint)
+                const { error: msgErr } = await supabase.from('whatsapp_messages').insert({
+                  conversation_id: convId,
+                  wamid: wamid,
+                  direction: 'inbound',
+                  type: type,
+                  body: textBody,
+                  meta_timestamp: timestamp
+                });
+                if (msgErr && msgErr.code !== '23505') { // 23505 is Unique Violation
+                  console.error("WhatsApp message insert error:", msgErr.message);
+                }
+              }
+            }
+          } else if (value?.statuses && value.statuses.length > 0) {
+            // OUTBOUND STATUS CALLBACK
+            const statusObj = value.statuses[0];
+            const wamid = statusObj.id;
+            const status = statusObj.status; // 'sent', 'delivered', 'read', 'failed'
+            
+            if (wamid && status) {
+              const { data: existingMsg } = await supabase.from('whatsapp_messages').select('status').eq('wamid', wamid).single();
+              if (existingMsg) {
+                const currentStatus = existingMsg.status;
+                const statusHierarchy = { 'sent': 1, 'delivered': 2, 'read': 3 };
+                const newLevel = statusHierarchy[status] || 0;
+                const currentLevel = statusHierarchy[currentStatus] || 0;
+                
+                // Prevent out-of-order downgrade
+                if (status === 'failed' || newLevel > currentLevel) {
+                  await supabase.from('whatsapp_messages').update({ status: status }).eq('wamid', wamid);
+                }
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error("WhatsApp webhook processing error:", err.message);
+      }
+
       return res.status(200).json({
         success: true,
         ignored: true,
-        source: 'whatsapp'
+        source: 'whatsapp',
+        processed: true
       });
     }
-    // -----------------------------------------
+    // -------------------------------------------------------------
 
     // --- [تحسين جذري] استخراج البيانات متعدد المستويات (Multi-Level Extraction) ---
 
