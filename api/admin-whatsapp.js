@@ -1,6 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
 import { sendWhatsAppText } from './whatsapp.js';
-import { verifyAdmin } from './access.js';
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
@@ -31,7 +30,11 @@ export default async (req, res) => {
   try {
     // 1. Authenticate Admin
     const creds = getAuthCredentials(req);
-    if (!creds || !verifyAdmin(creds.username, creds.password)) {
+    if (
+      !creds ||
+      creds.username !== process.env.ADMIN_USERNAME ||
+      creds.password !== process.env.ADMIN_PASSWORD
+    ) {
       return res.status(401).json({ error: 'Unauthorized access' });
     }
 
