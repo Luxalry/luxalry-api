@@ -896,6 +896,7 @@ async function handleGet(req, res, user) {
 
             // 4. Map Data (E-commerce)
             data = leads.map(l => ({
+                id: l.id,
                 timestamp: l.created_at,
                 orderId: l.order_id,
                 customerName: l.full_name,
@@ -1216,26 +1217,36 @@ async function handleDelete(req, res, user) {
     try {
         const { id } = req.body;
 
-        if (!id) {
-            return res.status(400).json({ error: 'ID is required' });
+        if (id === undefined || id === null || id === "" || id === "N/A" || isNaN(Number(id))) {
+            return res.status(400).json({ error: 'Valid numeric ID is required' });
         }
 
         if (!supabase) return res.status(500).json({ error: 'Supabase client not initialized' });
 
-        // Delete from Supabase only
-        const { error } = await supabase
+        // Delete from Supabase only using strict primary key match
+        const { data, error } = await supabase
             .from('leads')
             .delete()
-            .or(`order_id.eq.${id},transaction_id.eq.${id}`);
+            .eq('id', Number(id))
+            .select();
 
         if (error) {
             console.error('Supabase Delete Error:', error);
             throw error;
         }
 
+        if (!data || data.length === 0) {
+            return res.status(404).json({ error: 'Record not found' });
+        }
+
+        if (data.length > 1) {
+            return res.status(500).json({ error: 'Integrity failure: multiple rows deleted' });
+        }
+
         res.status(200).json({
             success: true,
-            message: 'Record deleted successfully'
+            message: 'Record deleted successfully',
+            deletedId: data[0].id
         });
 
     } catch (error) {
@@ -1251,20 +1262,6 @@ async function handleDelete(req, res, user) {
  */
 async function handlePostSpend(req, res, context) {
     try {
-        // 1. نستخدم الاتصال الآمن الجديد بدلاً من الاعتماد على الدالة القديمة
-        const doc = await _getSafeDocConnection();
-
-        // 2. الآن نضمن الوصول للقائمة الصحيحة
-        let sheet = doc.sheetsByTitle["Marketing_Spend"];
-
-        // إنشاء الورقة إذا لم تكن موجودة
-        if (!sheet) {
-            sheet = await doc.addSheet({
-                headerValues: ['Spend ID', 'Date', 'Campaign', 'Source', 'Ad Spend', 'Impressions', 'Clicks']
-            });
-            await sheet.updateProperties({ title: "Marketing_Spend" });
-        }
-
         const { date, campaign, source, spend, impressions, clicks, utm_id } = req.body;
 
         if (!date || !campaign || !spend) {
@@ -1274,20 +1271,7 @@ async function handlePostSpend(req, res, context) {
         // توليد معرف فريد
         const spendId = `SPD-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
-        await sheet.addRow({
-            'Spend ID': spendId,
-            'Date': date,
-            'Campaign': campaign,
-            'Source': source || 'Direct',
-            'utm_id': utm_id || '',
-            'Ad Spend': spend,
-            'Impressions': impressions || 0,
-            'Clicks': clicks || 0,
-            'Last Updated': new Date().toISOString(),
-            'Last Updated By': context.email
-        });
-
-        // --- (NEW) Dual-Write to Supabase ---
+        // --- Log to Supabase (Single Source of Truth) ---
         const syncedItem = {
             id: spendId,
             date: date,
