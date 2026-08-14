@@ -37,7 +37,7 @@ const TEMPLATE_NAME = process.env.WHATSAPP_TEMPLATE_NAME || 'order_confirmation'
 export async function sendWhatsAppConfirmation(data) {
   if (!WHATSAPP_TOKEN || !WHATSAPP_PHONE_ID) {
     console.warn("Skipping WhatsApp: Missing WHATSAPP_TOKEN or WHATSAPP_PHONE_ID.");
-    return;
+    return { success: false, error: { message: "Missing WHATSAPP_TOKEN or WHATSAPP_PHONE_ID in environment" } };
   }
 
   try {
@@ -48,7 +48,7 @@ export async function sendWhatsAppConfirmation(data) {
 
     if (!phone || phone === 'Unknown') {
       console.warn("Skipping WhatsApp: Invalid phone number.");
-      return;
+      return { success: false, error: { message: "Invalid phone number" } };
     }
 
     // تحديد لغة العميل
@@ -87,13 +87,17 @@ export async function sendWhatsAppConfirmation(data) {
 
     const result = await response.json();
     if (!response.ok) {
-      throw new Error(`Meta API Error: ${result.error?.message || JSON.stringify(result)}`);
+      console.error(`Meta API Error: ${result.error?.message || JSON.stringify(result)}`);
+      return { success: false, status: response.status, error: result.error || result };
     }
     
     // إخفاء جزء من رقم الهاتف في السجلات للحماية
     const maskedPhone = phone.length >= 8 ? phone.substring(0, 4) + '***' + phone.slice(-2) : '***';
     console.log(`WhatsApp confirmation sent to ${maskedPhone} (Template: ${TEMPLATE_NAME}, Lang: ${langCode})`);
+    
+    return { success: true, meta: result };
   } catch (error) {
     console.error("WhatsApp Sending Error:", error.message);
+    return { success: false, status: 500, error: { message: error.message } };
   }
 }
