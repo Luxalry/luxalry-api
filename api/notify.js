@@ -286,6 +286,18 @@ export default async (req, res) => {
     }
     // --------------------------------------------------
 
+    // --- SAFELY CAPTURE RAW PAYLOAD FOR DISCOVERY ---
+    try {
+      if (supabase) {
+        await supabase.from('webhook_event_debug').insert({
+          raw_payload: body
+        });
+      }
+    } catch (captureErr) {
+      console.error("Safely ignored debug capture failure:", captureErr.message);
+    }
+    // ------------------------------------------------
+
     console.log("Incoming Payload:", JSON.stringify(body).substring(0, 500));
 
     // --- [تحسين جذري] استخراج البيانات متعدد المستويات (Multi-Level Extraction) ---
