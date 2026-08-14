@@ -1,5 +1,4 @@
-import { GoogleSpreadsheet } from 'google-spreadsheet';
-import { JWT } from 'google-auth-library';
+
 import crypto from 'crypto';
 
 // Configuration
@@ -13,49 +12,22 @@ import { createClient } from '@supabase/supabase-js';
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
 async function logAccessToSupabase(data) {
-    try {
-        await supabase.from('access_logs').insert({
-            request_id: data.requestId,
-            ip_address: data.ip,
-            user_agent: data.ua,
-            username: data.username,
-            action: data.action,
-            status: data.status,
-            details: data.details
-        });
-    } catch (e) { console.error('DB Log Error:', e.message); }
-}
-
-// Helper: Connect to Google Sheet (Audit Log)
-async function _getSafeDocConnection() {
-    const spreadsheetId = process.env.GOOGLE_SHEET_ID;
-    const serviceAccountEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-    const privateKey = (process.env.GOOGLE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
-
-    if (!spreadsheetId || !serviceAccountEmail || !privateKey) {
-        throw new Error('Google Sheets credentials missing');
-    }
-
-    const serviceAccountAuth = new JWT({
-        email: serviceAccountEmail,
-        key: privateKey,
-        scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    const { error } = await supabase.from('access_logs').insert({
+        request_id: data.requestId,
+        ip_address: data.ip,
+        user_agent: data.ua,
+        username: data.username,
+        action: data.action,
+        status: data.status,
+        details: data.details
     });
-
-    const doc = new GoogleSpreadsheet(spreadsheetId, serviceAccountAuth);
-    await doc.loadInfo();
-    return doc;
-}
-
-// Helper: Get or Create Access Log Sheet
-async function _getAccessLogSheet(doc) {
-    let sheet = doc.sheetsByTitle["Access_Logs"];
-    if (!sheet) {
-        sheet = await doc.addSheet({ headerValues: ['Request ID', 'Timestamp', 'IP', 'User Agent', 'Context User', 'Status', 'Reviewer'] });
-        await sheet.updateProperties({ title: "Access_Logs" });
+    if (error) {
+        console.error('DB Log Error:', error.message);
+        throw new Error('Database Error');
     }
-    return sheet;
 }
+
+
 
 // Helper: Sign Token (HMAC SHA256)
 function signToken(payload) {
@@ -124,21 +96,8 @@ export default async function handler(req, res) {
             const userAgent = req.headers['user-agent'] || 'Unknown';
             const requestId = crypto.randomUUID();
 
-            // Log to Sheet
-            const doc = await _getSafeDocConnection();
-            const sheet = await _getAccessLogSheet(doc);
-            await sheet.addRow({
-                'Request ID': requestId,
-                'Timestamp': new Date().toISOString(),
-                'IP': ip,
-                'User Agent': userAgent,
-                'Context User': username || 'Anonymous',
-                'Status': 'pending',
-                'Reviewer': '-'
-            });
-
-            // --- (NEW) Dual-Log to Supabase ---
-            logAccessToSupabase({
+            // Log to Supabase (Single Source of Truth)
+            await logAccessToSupabase({
                 requestId: requestId,
                 ip: ip,
                 ua: userAgent,
@@ -147,7 +106,6 @@ export default async function handler(req, res) {
                 status: 'pending',
                 details: { context: 'access.js' }
             });
-            // ----------------------------------
 
             // Send Telegram Notification
             const message = `🚨 *Escalation Request*\n\n*User:* \`${username}\`\n*IP:* \`${ip}\`\n*ID:* \`${requestId.split('-')[0]}\`\n\n_Approve access for 10 minutes?_`;
@@ -169,14 +127,15 @@ export default async function handler(req, res) {
             const { id } = req.query;
             if (!id) return res.status(400).json({ error: 'Missing ID' });
 
-            const doc = await _getSafeDocConnection();
-            const sheet = await _getAccessLogSheet(doc);
-            const rows = await sheet.getRows();
-            const row = rows.find(r => r.get('Request ID') === id);
+            const { data: row, error } = await supabase
+                .from('access_logs')
+                .select('status')
+                .eq('request_id', id)
+                .single();
 
-            if (!row) return res.status(404).json({ error: 'Request not found' });
+            if (error || !row) return res.status(404).json({ error: 'Request not found' });
 
-            const status = row.get('Status');
+            const status = row.status;
             if (status === 'approved') {
                 // Generate Token (Valid for 10 mins)
                 const payload = {
@@ -205,28 +164,45 @@ export default async function handler(req, res) {
                 const [decision, requestId] = data.split(':');
                 const reviewer = cb.from.username || cb.from.first_name;
 
-                // Update Sheet
-                const doc = await _getSafeDocConnection();
-                const sheet = await _getAccessLogSheet(doc);
-                const rows = await sheet.getRows();
-                const row = rows.find(r => r.get('Request ID') === requestId);
+                // Fetch current state
+                const { data: existingRow, error: fetchError } = await supabase
+                    .from('access_logs')
+                    .select('status, details')
+                    .eq('request_id', requestId)
+                    .single();
 
-                if (row) {
-                    const currentStatus = row.get('Status');
-                    if (currentStatus === 'pending') {
-                        row.assign({ 'Status': decision === 'approve' ? 'approved' : 'denied', 'Reviewer': reviewer });
-                        await row.save();
+                if (fetchError || !existingRow) {
+                    await answerCallbackQuery(cb.id, 'Request not found');
+                    return res.status(200).json({ success: true });
+                }
 
+                if (existingRow.status === 'pending') {
+                    // Merge reviewer into details
+                    const newDetails = { ...(existingRow.details || {}), reviewer: reviewer };
+
+                    // Atomic update: only update if STILL pending
+                    const { data, error } = await supabase
+                        .from('access_logs')
+                        .update({ 
+                            status: decision === 'approve' ? 'approved' : 'denied',
+                            details: newDetails
+                        })
+                        .eq('request_id', requestId)
+                        .eq('status', 'pending')
+                        .select();
+
+                    if (data && data.length > 0) {
                         // Edit Message
                         const icon = decision === 'approve' ? '✅' : '❌';
                         const newText = `🚨 *Escalation Request*\n\n*ID:* \`${requestId.split('-')[0]}\`\n*Status:* ${icon} ${decision.toUpperCase()} by ${reviewer}`;
                         await editTelegramMessage(cb.message.message_id, newText);
                         await answerCallbackQuery(cb.id, `Request ${decision}d`);
                     } else {
+                        // Another concurrent request processed it first
                         await answerCallbackQuery(cb.id, 'Request already processed');
                     }
                 } else {
-                    await answerCallbackQuery(cb.id, 'Request not found');
+                    await answerCallbackQuery(cb.id, 'Request already processed');
                 }
             }
 
