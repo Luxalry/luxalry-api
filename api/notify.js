@@ -300,6 +300,16 @@ export default async (req, res) => {
 
     console.log("Incoming Payload:", JSON.stringify(body).substring(0, 500));
 
+    // --- META WHATSAPP NAMESPACE ISOLATION ---
+    if (body?.object === 'whatsapp_business_account') {
+      return res.status(200).json({
+        success: true,
+        ignored: true,
+        source: 'whatsapp'
+      });
+    }
+    // -----------------------------------------
+
     // --- [تحسين جذري] استخراج البيانات متعدد المستويات (Multi-Level Extraction) ---
 
     // 1. تحديد المصادر المحتملة للبيانات
