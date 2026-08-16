@@ -34,6 +34,65 @@ const WHATSAPP_PHONE_ID = process.env.WHATSAPP_PHONE_ID;
 // أو استخدام اسم قالب واحد مع تحديد رمز اللغة في الـ Payload
 const TEMPLATE_NAME = process.env.WHATSAPP_TEMPLATE_NAME || 'order_confirmation';
 
+export async function sendWhatsAppTemplate(phone, templateName, langCode, bodyComponents) {
+  if (!WHATSAPP_TOKEN || !WHATSAPP_PHONE_ID) {
+    console.warn(`Skipping WhatsApp template ${templateName}: Missing WHATSAPP_TOKEN or WHATSAPP_PHONE_ID.`);
+    return { success: false, error: { message: "Missing WHATSAPP_TOKEN or WHATSAPP_PHONE_ID in environment" } };
+  }
+
+  try {
+    if (phone && phone.startsWith('+')) {
+      phone = phone.substring(1);
+    }
+
+    if (!phone || phone === 'Unknown') {
+      return { success: false, error: { message: "Invalid phone number" } };
+    }
+
+    const payload = {
+      messaging_product: "whatsapp",
+      to: phone,
+      type: "template",
+      template: {
+        name: templateName,
+        language: {
+          code: langCode
+        },
+        components: [
+          {
+            type: "body",
+            parameters: bodyComponents
+          }
+        ]
+      }
+    };
+
+    const response = await fetch(`https://graph.facebook.com/v20.0/${WHATSAPP_PHONE_ID}/messages`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${WHATSAPP_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const result = await response.json();
+    if (!response.ok) {
+      console.error(`Meta API Error (Template ${templateName}): ${result.error?.message || JSON.stringify(result)}`);
+      return { success: false, status: response.status, error: result.error || result };
+    }
+
+    const wamid = result?.messages?.[0]?.id;
+    const maskedPhone = phone.length >= 8 ? phone.substring(0, 4) + '***' + phone.slice(-2) : '***';
+    console.log(`WhatsApp template '${templateName}' sent to ${maskedPhone}. wamid: ${wamid}`);
+    
+    return { success: true, meta: result, wamid };
+  } catch (error) {
+    console.error(`WhatsApp Template '${templateName}' Sending Error:`, error.message);
+    return { success: false, status: 500, error: { message: error.message } };
+  }
+}
+
 export async function sendWhatsAppConfirmation(data) {
   if (!WHATSAPP_TOKEN || !WHATSAPP_PHONE_ID) {
     console.warn("Skipping WhatsApp: Missing WHATSAPP_TOKEN or WHATSAPP_PHONE_ID.");
