@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import SibApiV3Sdk from 'sib-api-v3-sdk'; // [إضافة] مكتبة البريد
 /*import { emailTemplates } from './email-templates.js';*/
 import { sendWhatsAppConfirmation } from './whatsapp.js'; // [إضافة] وحدة الواتساب
+import { processOrderLifecycle } from './order-lifecycle.js';
 
 // --- [إضافة جديدة] إعدادات لتعطيل معالجة Vercel التلقائية ---
 export const config = {
@@ -20,7 +21,7 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
 // --- [إضافة] دالة الكتابة في Supabase ---
 async function writeToSupabase(data) {
   try {
-    const { error } = await supabase.from('leads').insert({
+    const { data: insertedData, error } = await supabase.from('leads').insert({
       order_id: data.orderId,
       full_name: data.clientName,
       email: data.clientEmail,
@@ -63,21 +64,21 @@ async function writeToSupabase(data) {
       created_at: new Date().toISOString(),
       last_updated: new Date().toISOString(),
       last_updated_by: 'System'
-    });
+    }).select('id').single();
 
     if (error) {
       if (error.code === '23505') { // Unique constraint violation (duplicate order_id)
         console.log(`Order ${data.orderId} already exists. Treating as idempotent duplicate and preserving existing data.`);
-        return true; 
+        return { success: true, isDuplicate: true }; 
       }
       throw error;
     }
     
     console.log("Successfully saved to Supabase");
-    return true;
+    return { success: true, id: insertedData.id, isDuplicate: false };
   } catch (e) {
     console.error("Supabase Write Error:", e.message);
-    return false;
+    return { success: false };
   }
 }
 
@@ -372,16 +373,35 @@ export default async (req, res) => {
             const status = statusObj.status; // 'sent', 'delivered', 'read', 'failed'
             
             if (wamid && status) {
+              const statusHierarchy = { 'pending': 0, 'processing': 1, 'sent': 2, 'delivered': 3, 'read': 4, 'failed': -1 };
+              const newLevel = statusHierarchy[status] || 0;
+              
+              // 1. Process free-form conversations (whatsapp_messages)
               const { data: existingMsg } = await supabase.from('whatsapp_messages').select('status').eq('wamid', wamid).single();
               if (existingMsg) {
-                const currentStatus = existingMsg.status;
-                const statusHierarchy = { 'sent': 1, 'delivered': 2, 'read': 3 };
-                const newLevel = statusHierarchy[status] || 0;
+                const currentStatus = existingMsg.status || 'pending';
                 const currentLevel = statusHierarchy[currentStatus] || 0;
                 
                 // Prevent out-of-order downgrade
-                if (status === 'failed' || newLevel > currentLevel) {
+                // A 'failed' status should only apply if the current level is below 'sent' (i.e. it actually failed to send)
+                // If it was already sent, delivered, or read, a delayed failed callback must not downgrade it.
+                if ((status === 'failed' && currentLevel < statusHierarchy['sent']) || (status !== 'failed' && newLevel > currentLevel)) {
                   await supabase.from('whatsapp_messages').update({ status: status }).eq('wamid', wamid);
+                }
+              }
+
+              // 2. Process lifecycle events (whatsapp_lifecycle_events)
+              const { data: existingLifecycle } = await supabase.from('whatsapp_lifecycle_events').select('status').eq('wamid', wamid).single();
+              if (existingLifecycle) {
+                const currentStatus = existingLifecycle.status || 'pending';
+                const currentLevel = statusHierarchy[currentStatus] || 0;
+
+                // Same monotonic protection
+                if ((status === 'failed' && currentLevel < statusHierarchy['sent']) || (status !== 'failed' && newLevel > currentLevel)) {
+                  await supabase.from('whatsapp_lifecycle_events').update({ 
+                    status: status,
+                    updated_at: new Date().toISOString()
+                  }).eq('wamid', wamid);
                 }
               }
             }
@@ -518,7 +538,18 @@ export default async (req, res) => {
 
     // --- الترجمة ---
     const t = telegramTranslations[normalizedData.lang] || telegramTranslations['fr'];
-    const dbSuccess = await writeToSupabase(normalizedData);
+    const dbResult = await writeToSupabase(normalizedData);
+
+    if (dbResult.success && !dbResult.isDuplicate && dbResult.id) {
+      // Append the db_id so processOrderLifecycle has the primary key
+      normalizedData.id = dbResult.id;
+      
+      // Dispatch order_received ONLY for genuinely new pending orders.
+      // (The dashboard will handle confirmed/delivered status changes)
+      if (normalizedData.paymentStatus === 'pending') {
+         await processOrderLifecycle(normalizedData, 'order_received');
+      }
+    }
 
     // --- إرسال Telegram ---
     const message = `
@@ -547,19 +578,6 @@ ${t.status} ${sanitizeTelegramHTML(normalizedData.paymentStatus)}
       await Promise.allSettled(sendPromises);
     } catch (botError) {
       console.error("Telegram Error:", botError.message);
-    }
-
-    // --- [إضافة جديدة] إرسال بريد تأكيد الدفع ---
-    /*
-    if (normalizedData.paymentStatus === 'paid' && normalizedData.clientEmail && normalizedData.clientEmail !== 'Unknown') {
-      await sendConfirmationEmail(normalizedData);
-    }
-    */
-
-    // --- إرسال رسالة واتساب تلقائية للمبيعات الناجحة ---
-    if (normalizedData.paymentStatus === 'paid' || normalizedData.paymentStatus === 'delivered' || normalizedData.paymentStatus === 'confirmed') {
-      // يمكنك تعديل الشرط أعلاه ليطابق الحالات التي تريد الإرسال فيها
-      await sendWhatsAppConfirmation(normalizedData);
     }
 
     res.status(200).json({ result: 'success', message: 'Notification processed.' });
