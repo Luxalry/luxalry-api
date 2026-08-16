@@ -4,6 +4,7 @@ import crypto from 'crypto';
 // import { validateRequired, validateEmail } from './utils.js'; 
 // أضف مكتبة Supabase هنا
 import { createClient } from '@supabase/supabase-js';
+import { processOrderLifecycle } from './order-lifecycle.js';
 
 // إعدادات المصادقة الأصلية (الباب الخلفي)
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME;
@@ -662,6 +663,10 @@ export default async function handler(req, res) {
         if (action === 'change_password') {
             return handleChangePassword(req, res, user);
         }
+        
+        if (action === 'lifecycle-retry') {
+            return handleLifecycleRetry(req, res, user);
+        }
 
         // 5. Lead Management Routes (CRUD for Google Sheets)
         // هذه المسارات متاحة للجميع (Admins & Editors) مع قيود داخلية
@@ -894,6 +899,16 @@ async function handleGet(req, res, user) {
                 if (!campaignsError) campaignConfig = campaigns;
             } catch (e) { console.warn('Campaign fetch error:', e); }
 
+            // Fetch Failed/Processing Lifecycle Events
+            let lifecycleEvents = [];
+            try {
+                const { data: lfData, error: lfErr } = await supabase
+                    .from('whatsapp_lifecycle_events')
+                    .select('*')
+                    .in('status', ['failed', 'processing']);
+                if (!lfErr) lifecycleEvents = lfData || [];
+            } catch (e) { console.warn('Lifecycle fetch error:', e); }
+
             // 4. Map Data (E-commerce)
             data = leads.map(l => ({
                 id: l.id,
@@ -911,6 +926,14 @@ async function handleGet(req, res, user) {
                 note: l.note || '',
                 delivery_note: l.delivery_note || '',
                 isExternal: !!l.is_external,
+                lifecycle_events: lifecycleEvents.filter(e => e.order_id === l.id).map(e => ({
+                    id: e.id,
+                    event_type: e.event_type,
+                    status: e.status,
+                    error_details: e.error_details,
+                    attempt_count: e.attempt_count,
+                    last_attempt_at: e.last_attempt_at
+                })),
                 // -------------------------
 
                 status: l.status || 'pending',
@@ -1106,6 +1129,34 @@ async function handlePost(req, res, user) {
     }
 }
 
+async function handleLifecycleRetry(req, res, user) {
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+    if (user.role !== 'super_admin' && !user.permissions?.can_edit) {
+        return res.status(403).json({ error: 'صلاحيات غير كافية لإعادة المحاولة' });
+    }
+
+    const { event_type, order_id } = req.body;
+    if (!event_type || !order_id) return res.status(400).json({ error: 'Missing parameters' });
+
+    if (!supabase) return res.status(500).json({ error: 'Supabase client not initialized' });
+
+    try {
+        const { data: order, error: orderErr } = await supabase.from('leads').select('*').eq('id', order_id).single();
+        if (orderErr || !order) return res.status(404).json({ error: 'Order not found' });
+
+        const result = await processOrderLifecycle(order, event_type, true);
+        
+        if (result.success) {
+            return res.status(200).json({ success: true, message: 'Retry initiated' });
+        } else {
+            return res.status(500).json({ success: false, error: result.error });
+        }
+    } catch (e) {
+        console.error("Lifecycle retry error:", e);
+        return res.status(500).json({ error: 'Internal server error' });
+    }
+}
+
 
 /**
  * ===================================================================
@@ -1193,6 +1244,28 @@ async function handlePut(req, res, user) {
             console.error('Supabase Update Error:', updateError);
             throw updateError;
         }
+
+        // --- LIFECYCLE DISPATCH ---
+        const oldStatus = (dbItem.status || '').toLowerCase();
+        const newStatus = (updatedItem.status || oldStatus).toLowerCase();
+        
+        if (oldStatus !== newStatus) {
+            let eventType = null;
+            if (newStatus === 'confirmed') eventType = 'order_confirmation';
+            else if (newStatus === 'delivered') eventType = 'order_delivered';
+            else if (newStatus === 'cancelled' || newStatus === 'canceled') eventType = 'order_cancelled';
+            
+            if (eventType) {
+                // Fetch updated record to ensure we have the latest fields (e.g., amount, names)
+                const { data: updatedRecord } = await supabase.from('leads').select('*').eq('id', dbItem.id).single();
+                if (updatedRecord) {
+                    // Dispatch the event non-blockingly, or await it depending on preference.
+                    // Awaiting it ensures it runs before the response is sent.
+                    await processOrderLifecycle(updatedRecord, eventType);
+                }
+            }
+        }
+        // --------------------------
 
         res.status(200).json({
             success: true,
