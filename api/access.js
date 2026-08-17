@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { handleAdminCors } from './utils.js';
+import { handleAdminCors, getCanonicalIP } from './utils.js';
 
 // Configuration
 const TG_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -86,7 +86,7 @@ export default async function handler(req, res) {
                 return res.status(401).json({ error: 'Invalid Emergency Credentials' });
             }
 
-            const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+            const ip = getCanonicalIP(req);
             const userAgent = req.headers['user-agent'] || 'Unknown';
             const requestId = crypto.randomUUID();
 
@@ -135,7 +135,7 @@ export default async function handler(req, res) {
                 const payload = {
                     scope: 'admin:escalation',
                     rid: id,
-                    ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress,
+                    ip: getCanonicalIP(req),
                     ua: req.headers['user-agent'] || 'Unknown', // [SECURITY] Context Binding
                     jti: crypto.randomUUID(), // [SECURITY] Anti-Replay
                     iat: Date.now(),
