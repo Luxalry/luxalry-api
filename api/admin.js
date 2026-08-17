@@ -1,5 +1,6 @@
 
 import crypto from 'crypto';
+import { handleAdminCors } from './utils.js';
 // ملاحظة: تأكد من أن ملف utils.js موجود إذا كنت تستخدمه
 // import { validateRequired, validateEmail } from './utils.js'; 
 // أضف مكتبة Supabase هنا
@@ -581,26 +582,20 @@ async function handleChangePassword(req, res, currentUser) {
  */
 export default async function handler(req, res) {
     // 1. CORS Setup & Cache Control
-    const origin = req.headers.origin || '*';
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    if (handleAdminCors(req, res)) {
+        return res.status(200).end();
+    }
+
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
 
-    // 2. Preflight Requests
-    if (req.method === 'OPTIONS') {
-        res.status(200).end();
-        return;
-    }
-
     try {
         const { action } = req.query || {};
 
-        // 1. مسارات عامة (Login/Logout) لا تحتاج سياق
+        // 1. مسارات عامة (Login/Logout/Refresh) لا تحتاج سياق
         if (action === 'login' || req.body?.username) return handleLogin(req, res);
+        if (action === 'refresh') return handleRefresh(req, res);
         if (action === 'logout') return handleLogout(req, res);
 
         // 2. الحصول على "السياق الصارم"
@@ -792,6 +787,12 @@ async function handleLogin(req, res) {
                         error: 'Sorry, your account has been frozen. Please contact the administration.'
                     });
                 }
+
+                // --- INJECT REFRESH COOKIE ---
+                const maxAge = 30 * 24 * 60 * 60; // 30 days
+                const secureFlag = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+                res.setHeader('Set-Cookie', `refresh_token=${data.session.refresh_token}; HttpOnly; Path=/api/admin; Max-Age=${maxAge}; SameSite=Strict${secureFlag}`);
+                // -----------------------------
 
                 return res.status(200).json({
                     success: true,
@@ -1448,15 +1449,60 @@ async function authenticateUser(req, res) {
  */
 async function handleLogout(req, res) {
     try {
-        // Clear cookie by setting Max-Age=0
+        // Clear cookies by setting Max-Age=0
         const secureFlag = process.env.NODE_ENV === 'production' ? '; Secure' : '';
-        const sameSite = 'None';
-        const cookie = `admin_session=; HttpOnly; Path=/; Max-Age=0; SameSite=${sameSite}${secureFlag}`;
-        res.setHeader('Set-Cookie', cookie);
+        const sameSite = 'Strict';
+        
+        // Revoke server-side session if possible (optional but good practice)
+        // supabase.auth.signOut() clears local storage in browser usually, but since we are backend,
+        // we can try if there is a way, but since we only have the request, we can just drop the cookie.
+        
+        res.setHeader('Set-Cookie', [
+            `admin_session=; HttpOnly; Path=/; Max-Age=0; SameSite=None${secureFlag}`,
+            `refresh_token=; HttpOnly; Path=/api/admin; Max-Age=0; SameSite=${sameSite}${secureFlag}`
+        ]);
+        
         return res.status(200).json({ success: true, message: 'Logged out' });
     } catch (error) {
         console.error('Logout error', error);
         return res.status(500).json({ error: 'Internal server error' });
+    }
+}
+
+async function handleRefresh(req, res) {
+    try {
+        // Extract refresh_token from cookies
+        const cookies = req.headers.cookie || '';
+        const match = cookies.match(/refresh_token=([^;]+)/);
+        const refreshToken = match ? match[1] : null;
+
+        if (!refreshToken) {
+            return res.status(401).json({ error: 'No refresh token provided' });
+        }
+
+        const { data, error } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
+
+        if (error || !data.session) {
+            // Clear the invalid cookie
+            const secureFlag = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+            res.setHeader('Set-Cookie', `refresh_token=; HttpOnly; Path=/api/admin; Max-Age=0; SameSite=Strict${secureFlag}`);
+            return res.status(401).json({ error: 'Session expired' });
+        }
+
+        // Set the new refresh_token cookie
+        const maxAge = 30 * 24 * 60 * 60; // 30 days
+        const secureFlag = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+        res.setHeader('Set-Cookie', `refresh_token=${data.session.refresh_token}; HttpOnly; Path=/api/admin; Max-Age=${maxAge}; SameSite=Strict${secureFlag}`);
+
+        // Return ONLY the new access_token
+        return res.status(200).json({
+            success: true,
+            token: data.session.access_token
+        });
+
+    } catch (e) {
+        console.error('Refresh error', e);
+        return res.status(500).json({ error: 'Internal server error during refresh' });
     }
 }
 
