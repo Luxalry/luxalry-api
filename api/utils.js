@@ -1,4 +1,5 @@
 // Shared utility functions for API validation and sanitization (Customized for E-commerce)
+import crypto from 'crypto';
 
 export function validateEmail(email) {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -128,4 +129,39 @@ export function getCanonicalIP(req) {
   }
 
   return 'Unknown';
+}
+
+/**
+ * [NEW] Centralized Escalation Token Validation
+ */
+export function validateEscalationToken(token, secret, req) {
+    if (!token || !token.includes('.')) return null;
+    
+    try {
+        const [payloadB64, signature] = token.split('.');
+        
+        // 1. Verify Signature
+        const expectedSig = crypto.createHmac('sha256', secret)
+            .update(Buffer.from(payloadB64, 'base64').toString())
+            .digest('hex');
+            
+        if (signature !== expectedSig) return null;
+        
+        const payload = JSON.parse(Buffer.from(payloadB64, 'base64').toString());
+        
+        // 2. Verify Expiration & Scope
+        if (payload.scope !== 'admin:escalation' || payload.exp <= Date.now()) return null;
+        
+        // 3. Verify IP and User-Agent Binding
+        const currentIP = getCanonicalIP(req);
+        const currentUA = req.headers['user-agent'] || 'Unknown';
+        
+        if (process.env.ESCALATION_ACTIVE === 'false') return null;
+        if (payload.ip && payload.ip !== currentIP) return null;
+        if (payload.ua && payload.ua !== currentUA) return null;
+        
+        return payload; // Valid
+    } catch (e) {
+        return null;
+    }
 }
