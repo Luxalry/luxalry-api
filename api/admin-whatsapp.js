@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { sendWhatsAppText } from './whatsapp.js';
+import { handleAdminCors } from './utils.js';
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
@@ -40,11 +41,7 @@ async function getAuthContext(req) {
 
 export default async (req, res) => {
   // CORS setup
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-
-  if (req.method === 'OPTIONS') {
+  if (handleAdminCors(req, res)) {
     return res.status(200).end();
   }
 
