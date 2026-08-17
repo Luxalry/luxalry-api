@@ -1,16 +1,28 @@
 import { createClient } from '@supabase/supabase-js';
 import { sendWhatsAppText } from './whatsapp.js';
-import { handleAdminCors } from './utils.js';
+import { handleAdminCors, validateEscalationToken } from './utils.js';
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+const ESCALATION_SECRET = process.env.ESCALATION_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-// Helper to authenticate and authorize via Supabase JWT
+// Helper to authenticate and authorize via Supabase JWT or Escalation Token
 async function getAuthContext(req) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
 
   const token = authHeader.split(' ')[1];
   
+  // 1. Try Escalation Token (Fallback)
+  const escalationPayload = validateEscalationToken(token, ESCALATION_SECRET, req);
+  if (escalationPayload) {
+    return {
+      user: { email: 'escalated_admin@system.local' },
+      can_edit: true, // Escalation grants super_admin rights
+      isEscalated: true
+    };
+  }
+
+  // 2. Try Supabase JWT
   try {
     const userClient = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
       global: { headers: { Authorization: `Bearer ${token}` } },
