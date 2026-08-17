@@ -87,3 +87,45 @@ export function handleAdminCors(req, res) {
   // If it's an OPTIONS request, return true so the caller can end the response
   return req.method === 'OPTIONS';
 }
+
+/**
+ * Centralized IP Extraction (Canonical Normalization)
+ * Resolves the true client IP consistently across issuance and verification,
+ * stripping fluctuating infrastructure proxy chains (e.g., Vercel, Cloudflare).
+ *
+ * Precedence:
+ * 1. x-forwarded-for (First IP in comma-separated list)
+ * 2. x-real-ip
+ * 3. req.socket.remoteAddress
+ */
+export function getCanonicalIP(req) {
+  if (!req) return 'Unknown';
+  
+  // 1. x-forwarded-for (Proxy chain)
+  const forwardedFor = req.headers['x-forwarded-for'];
+  if (forwardedFor && typeof forwardedFor === 'string') {
+    // Vercel / Cloudflare append IPs to this list. The FIRST IP is the original client.
+    const ips = forwardedFor.split(',');
+    if (ips.length > 0) {
+      const firstIp = ips[0].trim();
+      if (firstIp) return firstIp;
+    }
+  }
+
+  // 2. x-real-ip (Single proxy IP fallback)
+  const realIp = req.headers['x-real-ip'];
+  if (realIp && typeof realIp === 'string') {
+    return realIp.trim();
+  }
+
+  // 3. Raw socket address (Fallback for direct connections / local dev)
+  if (req.socket && req.socket.remoteAddress) {
+    return req.socket.remoteAddress.trim();
+  }
+
+  if (req.connection && req.connection.remoteAddress) {
+    return req.connection.remoteAddress.trim();
+  }
+
+  return 'Unknown';
+}
