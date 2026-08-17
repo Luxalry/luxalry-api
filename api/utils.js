@@ -64,3 +64,26 @@ export function sanitizeTelegramHTML(text) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 }
+
+export function handleAdminCors(req, res) {
+  const origin = req.headers.origin;
+  const rawAllowedOrigins = process.env.ADMIN_ALLOWED_ORIGINS || '';
+  
+  // Parse and normalize allowed origins (trim whitespace, remove trailing slashes)
+  const allowedOrigins = rawAllowedOrigins.split(',').map(o => o.trim().replace(/\/$/, ''));
+  const normalizedOrigin = origin ? origin.replace(/\/$/, '') : null;
+  
+  if (normalizedOrigin && allowedOrigins.includes(normalizedOrigin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin); // Always reflect the exact incoming origin
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  } else {
+    // Explicitly reject untrusted origins. Do not set * when using credentials.
+    res.setHeader('Access-Control-Allow-Origin', 'null');
+  }
+
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, X-CSRF-Token');
+  
+  // If it's an OPTIONS request, return true so the caller can end the response
+  return req.method === 'OPTIONS';
+}
