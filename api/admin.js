@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { handleAdminCors, getCanonicalIP } from './utils.js';
+import { handleAdminCors, getCanonicalIP, validateEscalationToken } from './utils.js';
 // ملاحظة: تأكد من أن ملف utils.js موجود إذا كنت تستخدمه
 // import { validateRequired, validateEmail } from './utils.js'; 
 // أضف مكتبة Supabase هنا
@@ -138,42 +138,21 @@ async function getRequestContext(req) {
         const token = authHeader.split(' ')[1];
 
         // محاولة التحقق من التوكن كـ Escalation Token
-        if (token.includes('.')) {
-            try {
-                const [payloadB64, signature] = token.split('.');
-                // 1. Verify Signature
-                const expectedSig = crypto.createHmac('sha256', ESCALATION_SECRET).update(Buffer.from(payloadB64, 'base64').toString()).digest('hex');
+        const escalationPayload = validateEscalationToken(token, ESCALATION_SECRET, req);
+        
+        if (escalationPayload) {
+            const adminClient = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
+                auth: { autoRefreshToken: false, persistSession: false }
+            });
 
-                if (signature === expectedSig) {
-                    const payload = JSON.parse(Buffer.from(payloadB64, 'base64').toString());
-
-                    // 2. Verify Expiration & Scope
-                    if (payload.scope === 'admin:escalation' && payload.exp > Date.now()) {
-                        // ✅ Grant Temporary Super Admin Access
-                        // [SECURITY] Context Binding
-                        const currentIP = getCanonicalIP(req);
-                        const currentUA = req.headers['user-agent'] || 'Unknown';
-                        if (process.env.ESCALATION_ACTIVE === 'false') return null;
-                        if (payload.ip && payload.ip !== currentIP) return null;
-                        if (payload.ua && payload.ua !== currentUA) return null;
-
-                        const adminClient = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
-                            auth: { autoRefreshToken: false, persistSession: false }
-                        });
-
-                        return {
-                            type: 'backdoor', // Treat as backdoor for functionality
-                            role: 'super_admin',
-                            email: 'escalated_admin@system.local',
-                            dbClient: adminClient,
-                            permissions: { can_edit: true, can_view_stats: true, can_view_internal: true, can_view_external: true },
-                            isEscalated: true
-                        };
-                    }
-                }
-            } catch (e) {
-                // Ignore errors, might be a normal Supabase token
-            }
+            return {
+                type: 'backdoor', // Treat as backdoor for functionality
+                role: 'super_admin',
+                email: 'escalated_admin@system.local',
+                dbClient: adminClient,
+                permissions: { can_edit: true, can_view_stats: true, can_view_internal: true, can_view_external: true },
+                isEscalated: true
+            };
         }
     }
 
