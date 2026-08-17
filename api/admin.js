@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { handleAdminCors } from './utils.js';
+import { handleAdminCors, getCanonicalIP } from './utils.js';
 // ملاحظة: تأكد من أن ملف utils.js موجود إذا كنت تستخدمه
 // import { validateRequired, validateEmail } from './utils.js'; 
 // أضف مكتبة Supabase هنا
@@ -151,7 +151,7 @@ async function getRequestContext(req) {
                     if (payload.scope === 'admin:escalation' && payload.exp > Date.now()) {
                         // ✅ Grant Temporary Super Admin Access
                         // [SECURITY] Context Binding
-                        const currentIP = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+                        const currentIP = getCanonicalIP(req);
                         const currentUA = req.headers['user-agent'] || 'Unknown';
                         if (process.env.ESCALATION_ACTIVE === 'false') return null;
                         if (payload.ip && payload.ip !== currentIP) return null;
